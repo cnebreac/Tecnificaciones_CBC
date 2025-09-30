@@ -62,6 +62,25 @@ def iso(d: dt.date) -> str:
 def _norm_name(s: str) -> str:
     return " ".join((s or "").split()).casefold()
 
+# ====== FLASH MESSAGES (persisten tras st.rerun) ======
+def flash(msg: str, level: str = "success"):
+    """Guarda un mensaje para mostrar tras el próximo rerun."""
+    st.session_state["_flash_msg"] = (level, msg)
+
+def show_flash():
+    """Muestra el mensaje guardado (si existe) y lo limpia."""
+    data = st.session_state.pop("_flash_msg", None)
+    if not data:
+        return
+    level, msg = data
+    {
+        "success": st.success,
+        "warning": st.warning,
+        "error":   st.error,
+        "info":    st.info,
+    }.get(level, st.info)(msg)
+
+
 # ====== GOOGLE SHEETS ======
 import gspread
 from google.oauth2.service_account import Credentials
@@ -387,6 +406,7 @@ if show_admin_login:
 else:
     # ====== SOLO USUARIO NORMAL ======
     st.title(APP_TITLE)
+    show_flash()
     st.caption("Reserva solo en las fechas activas. Si no ves tu fecha, es que no hay sesión ese día.")
 
     today = dt.date.today()
@@ -512,11 +532,12 @@ else:
     st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
 
     # ⬇️ Formulario con autolimpieza
+    # ⬇️ Formulario con autolimpieza
     with st.form(f"form_{fkey}", clear_on_submit=True):
         st.write("📝 Información del jugador")
         nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
         canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
-        equipo = st.text_input("Categoría", key=f"equipo_{fkey}")
+        equipo = st.text_input("Categoría", key=f"equipo_{fkey}")  # <- etiqueta corregida
         padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
         telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
         enviar = st.form_submit_button("Reservar")
@@ -526,27 +547,29 @@ else:
                 # Duplicados por nombre y apellidos
                 ya = ya_existe_en_sesion(fkey, nombre)
                 if ya == "inscripciones":
-                    st.error("❌ Este jugador **ya está inscrito** en esta sesión.")
+                    flash("❌ Este jugador ya está inscrito en esta sesión.", "error")
                 elif ya == "waitlist":
-                    st.warning("ℹ️ Este jugador **ya está en lista de espera** para esta sesión.")
+                    flash("ℹ️ Este jugador ya está en lista de espera para esta sesión.", "warning")
                 else:
                     libres_cat = plazas_libres(fkey, canasta)
                     if libres_cat <= 0:
-                        st.warning("⚠️ No hay plazas en esta categoría. Te pasamos a **lista de espera**.")
                         append_row("waitlist", [
                             dt.datetime.now().isoformat(timespec="seconds"),
                             fkey, hora_sesion, nombre, canasta, (equipo or ""), (padre or ""), telefono
                         ])
+                        flash("⚠️ No hay plazas en esta categoría. Te hemos pasado a **lista de espera**.", "warning")
                     else:
                         append_row("inscripciones", [
                             dt.datetime.now().isoformat(timespec="seconds"),
                             fkey, hora_sesion, nombre, canasta, (equipo or ""), (padre or ""), telefono
                         ])
-                        st.success("✅ Inscripción realizada correctamente")
+                        flash("✅ Inscripción realizada correctamente.", "success")
                 st.cache_data.clear()
-                st.rerun()
+                st.rerun()  # ← mantiene inputs limpios y counters actualizados
             else:
                 st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
+
+
 
 
 
