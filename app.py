@@ -1,6 +1,4 @@
-### conda activate basketapp
-### streamlit run /Users/cnebreac/Desktop/Tecnificaciones_CBC/app.py
-### URL Admin + '?admin=1' y contraseña 'tecnifi2025' 
+
 
 import streamlit as st
 import pandas as pd
