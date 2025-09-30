@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -517,8 +515,8 @@ else:
     with st.form(f"form_{fkey}", clear_on_submit=True):
         st.write("📝 Información del jugador")
         nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
-        canasta = st.radio("Categoría", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
-        equipo = st.text_input("Equipo", key=f"equipo_{fkey}")
+        canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
+        equipo = st.text_input("Categoría", key=f"equipo_{fkey}")
         padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
         telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
         enviar = st.form_submit_button("Reservar")
@@ -549,5 +547,7 @@ else:
                 st.rerun()
             else:
                 st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
+
+
 
 
