@@ -406,7 +406,6 @@ if show_admin_login:
 else:
     # ====== SOLO USUARIO NORMAL ======
     st.title(APP_TITLE)
-    show_flash()
     st.caption("Reserva solo en las fechas activas. Si no ves tu fecha, es que no hay sesión ese día.")
 
     today = dt.date.today()
@@ -570,7 +569,6 @@ else:
                 st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
 
 
-
-
+    show_flash()
 
 
