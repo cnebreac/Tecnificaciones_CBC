@@ -1,6 +1,6 @@
-streamlit>=1.35,<1.41
-pandas>=2.1
+streamlit==1.38.0
+pandas>=2.1,<2.3
 gspread>=6.0
-google-auth>=2.22
+google-auth>=2.22,<3
 reportlab>=4.0,<5
-streamlit-calendar>=1.0.1
+streamlit-calendar==1.0.1
