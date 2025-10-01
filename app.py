@@ -17,7 +17,7 @@ MAX_POR_CANASTA = 4
 CATEG_MINI = "Minibasket"
 CATEG_GRANDE = "Canasta grande"
 
-# Opciones para Categoría/Equipo
+# Opciones para Categoría/Equipo (edítalas a tu gusto)
 EQUIPOS_OPCIONES = [
     "— Selecciona —",
     "Escuela 1ºaño 2019",
@@ -44,6 +44,7 @@ if "gcp_service_account" not in st.secrets:
 _SID = st.secrets.get("SHEETS_SPREADSHEET_ID")
 _URL = st.secrets.get("SHEETS_SPREADSHEET_URL")
 _SID_BLOCK = (st.secrets.get("sheets") or {}).get("sheet_id")
+
 if not (_SID or _URL or _SID_BLOCK):
     st.error("Configura en secrets la hoja: SHEETS_SPREADSHEET_ID o SHEETS_SPREADSHEET_URL (o [sheets].sheet_id).")
     st.stop()
@@ -79,20 +80,10 @@ def iso(d: dt.date) -> str:
 def _norm_name(s: str) -> str:
     return " ".join((s or "").split()).casefold()
 
-# ====== FLASH MESSAGES (opcional, lo conservamos) ======
-def flash(msg: str, level: str = "success"):
-    st.session_state["_flash_msg"] = (level, msg)
-
-def show_flash():
-    data = st.session_state.pop("_flash_msg", None)
-    if not data:
-        return
-    level, msg = data
-    {"success": st.success, "warning": st.warning, "error": st.error, "info": st.info}.get(level, st.info)(msg)
-
 # ====== GOOGLE SHEETS ======
 import gspread
 from google.oauth2.service_account import Credentials
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 def _gc():
@@ -122,7 +113,7 @@ def load_df(sheet_name: str) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 def append_row(sheet_name: str, values: list):
-    """Añade la fila y se asegura de que exista la cabecera 'email'."""
+    """Añade la fila y, si falta la cabecera 'email', la crea al final de la fila 1."""
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
     headers = ws.row_values(1)
@@ -151,7 +142,7 @@ def get_waitlist_por_fecha(fecha_iso: str) -> list:
             df[c] = ""
     return df[df["fecha_iso"] == fecha_iso][need].to_dict("records")
 
-# ====== CAPACIDAD / NOMBRES ======
+# ====== CAPACIDAD, DUPLICADOS ======
 def _match_canasta(valor: str, objetivo: str) -> bool:
     v = (valor or "").strip().lower()
     o = objetivo.strip().lower()
@@ -169,6 +160,7 @@ def plazas_libres(fecha_iso: str, canasta: str) -> int:
     return max(0, MAX_POR_CANASTA - plazas_ocupadas(fecha_iso, canasta))
 
 def ya_existe_en_sesion(fecha_iso: str, nombre: str) -> str | None:
+    """Devuelve 'inscripciones' o 'waitlist' si el nombre ya existe en esa fecha."""
     nn = _norm_name(nombre)
     for r in get_inscripciones_por_fecha(fecha_iso):
         if _norm_name(r.get("nombre","")) == nn:
@@ -178,8 +170,9 @@ def ya_existe_en_sesion(fecha_iso: str, nombre: str) -> str | None:
             return "waitlist"
     return None
 
-# ====== PDF: Justificante individual ======
+# ====== PDF: JUSTIFICANTE INDIVIDUAL ======
 def crear_justificante_pdf(datos: dict) -> BytesIO:
+    """Genera un justificante individual (confirmada o lista de espera)."""
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
     from reportlab.lib.units import cm
@@ -195,6 +188,7 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
     status_ok = (datos.get("status") == "ok")
     titulo = "Justificante de inscripción" if status_ok else "Justificante - Lista de espera"
 
+    # Cabecera
     c.setFont("Helvetica-Bold", 16)
     c.drawString(x, y, titulo)
     y -= 0.8*cm
@@ -205,6 +199,7 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
     c.drawString(x, y, f"Estado: {'CONFIRMADA' if status_ok else 'LISTA DE ESPERA'}")
     y -= 0.8*cm
 
+    # Datos
     c.setFont("Helvetica", 10)
     filas = [
         ("Jugador", datos.get("nombre","—")),
@@ -232,8 +227,9 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
     buf.seek(0)
     return buf
 
-# ====== PDF: Sesión completa (email debajo de nombre; tel. debajo de canasta; tutor debajo de equipo) ======
+# ====== PDF: LISTADOS SESIÓN (con email en 2ª línea) ======
 def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
+    """Genera un PDF con inscripciones y lista de espera (separadas por categoría)."""
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
     from reportlab.lib.units import cm
@@ -248,6 +244,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     wl_mini  = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_MINI)]
     wl_gran  = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
 
+    # hora
     hora = SESIONES.get(fecha_iso, "—")
     if lista:
         hora = lista[0].get("hora", hora) or hora
@@ -258,6 +255,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
 
+    # Cabecera
     fecha_txt = d.strftime("%A, %d %B %Y").capitalize()
     y = height - 2*cm
     c.setFont("Helvetica-Bold", 16)
@@ -267,16 +265,20 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     c.drawString(2*cm, y, f"Capacidad por categoría: {MAX_POR_CANASTA} | Mini: {len(ins_mini)} | Grande: {len(ins_gran)}")
     y -= 1.0*cm
 
+    # Utils texto
     def fit_text(ca, text, max_w, font="Helvetica", size=10):
-        t = (text or "")
-        if stringWidth(t, font, size) <= max_w:
-            return t
+        if not text: 
+            return ""
+        if stringWidth(text, font, size) <= max_w:
+            return text
         ell = "…"
         ell_w = stringWidth(ell, font, size)
+        t = text
         while t and stringWidth(t, font, size) + ell_w > max_w:
             t = t[:-1]
         return t + ell
 
+    # Márgenes y columnas
     left   = 2.0*cm
     right  = width - 2.0*cm
     x_num  = left
@@ -284,11 +286,15 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     x_cat  = left + 11.0*cm
     x_team = left + 14.0*cm
 
-    # segunda línea:
-    x_email = x_name          # Email debajo de Nombre
-    x_tel   = x_cat           # Teléfono debajo de Canasta
-    x_tutor = x_team          # Tutor debajo de Equipo
+    # Segunda línea (debajo de cada columna):
+    # - Email debajo de NOMBRE
+    # - Teléfono debajo de CANASTA
+    # - Tutor debajo de EQUIPO
+    x_email = x_name
+    x_tel   = x_cat
+    x_tutor = x_team
 
+    # Anchos máximos
     w_name  = (x_cat  - x_name) - 0.2*cm
     w_cat   = (x_team - x_cat)  - 0.2*cm
     w_team  = (right  - x_team)
@@ -297,6 +303,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     w_tel   = (x_team - x_tel)   - 0.3*cm
     w_tutor = (right  - x_tutor)
 
+    # Espaciado vertical
     line_spacing        = 0.46*cm
     separator_offset    = 0.30*cm
     post_separator_gap  = 0.50*cm
@@ -337,18 +344,21 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
             tel    = to_text(r.get("telefono",""))
             email  = to_text(r.get("email",""))
 
+            # Línea 1
             c.setFont("Helvetica", 10)
             c.drawString(x_num,  y, to_text(i))
             c.drawString(x_name, y, fit_text(c, nombre, w_name))
             c.drawString(x_cat,  y, fit_text(c, cat,   w_cat))
             c.drawString(x_team, y, fit_text(c, team,  w_team))
 
+            # Línea 2
             y -= line_spacing
             c.setFont("Helvetica", 9)
             c.drawString(x_email, y, "Email: " + fit_text(c, email, w_email, size=9))
             c.drawString(x_tel,   y, "Tel.: "  + fit_text(c, tel,   w_tel,   size=9))
             c.drawString(x_tutor, y, "Tutor: " + fit_text(c, tutor, w_tutor, size=9))
 
+            # Separador + aire extra
             y -= separator_offset
             c.setLineWidth(0.3)
             c.setDash(1, 2)
@@ -358,6 +368,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
             y -= post_separator_gap
         return y
 
+    # --- Inscripciones ---
     c.setFont("Helvetica-Bold", 12)
     c.drawString(left, y, "Inscripciones confirmadas:")
     y -= 0.8*cm
@@ -373,6 +384,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
         y = pintar_lista(grande, "Canasta grande", y, start_idx=1)
         y = pintar_lista(mini,   "Minibasket",    y, start_idx=len(grande)+1)
 
+    # --- Lista de espera ---
     y -= 1*cm
     c.setFont("Helvetica-Bold", 12)
     c.drawString(left, y, "Lista de espera:")
@@ -418,6 +430,7 @@ if show_admin_login:
             else:
                 st.error("Contraseña incorrecta.")
     else:
+        # Panel admin real
         df_all_ins = load_df("inscripciones")
         df_all_wl  = load_df("waitlist")
         fechas_con_datos = sorted(set(df_all_ins.get("fecha_iso", []))
@@ -426,7 +439,7 @@ if show_admin_login:
         if not fechas_con_datos:
             st.info("Aún no hay sesiones con datos.")
         else:
-            opciones = {f: f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {SESIONES.get(f,'—')}" 
+            opciones = {f: f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {SESIONES.get(f,'—')}"
                         for f in fechas_con_datos}
             fkey_admin = st.selectbox("Selecciona sesión", options=fechas_con_datos,
                                       format_func=lambda x: opciones.get(x, x))
@@ -448,6 +461,7 @@ if show_admin_login:
             else:
                 st.dataframe(df_wl, use_container_width=True)
 
+            # Botón PDF sesión
             if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
                 try:
                     pdf = crear_pdf_sesion(fkey_admin)
@@ -468,9 +482,11 @@ else:
     today = dt.date.today()
 
     # Solo sesiones futuras (>= hoy)
-    fechas_disponibles = sorted([f for f in SESIONES.keys() if dt.date.fromisoformat(f) >= today])
+    fechas_disponibles = sorted(
+        [f for f in SESIONES.keys() if dt.date.fromisoformat(f) >= today]
+    )
 
-    # Calendario
+    # Calendario (opcional)
     fecha_seleccionada = None
     try:
         from streamlit_calendar import calendar
@@ -481,18 +497,20 @@ else:
             ocupadas_mini = plazas_ocupadas(f, CATEG_MINI)
             ocupadas_gran = plazas_ocupadas(f, CATEG_GRANDE)
 
+            # Colores: rojo (pasada o ambas llenas), amarillo (una llena), verde (hay hueco)
             if fecha_dt < today:
                 color = "#dc3545"  # pasada
             else:
                 full_mini = ocupadas_mini >= MAX_POR_CANASTA
                 full_gran = ocupadas_gran >= MAX_POR_CANASTA
                 if full_mini and full_gran:
-                    color = "#dc3545"  # ambas completas -> rojo
+                    color = "#dc3545"
                 elif full_mini or full_gran:
-                    color = "#ffc107"  # una completa -> amarillo
+                    color = "#ffc107"
                 else:
-                    color = "#28a745"  # hay hueco -> verde
+                    color = "#28a745"
 
+            # Fondo (no para hoy)
             if fecha_dt != today:
                 events.append({
                     "title": "",
@@ -502,8 +520,9 @@ else:
                     "backgroundColor": color,
                 })
 
+            # Etiqueta solo con hora (o "Cancelada")
             hora = SESIONES.get(f, "Cancelada")
-            label = hora if hora != "Cancelada" else "Cancelada"  # solo la hora
+            label = hora if hora != "Cancelada" else "Cancelada"
             events.append({
                 "title": label,
                 "start": f,
@@ -537,23 +556,27 @@ else:
 
         if cal and cal.get("clickedEvent"):
             fclicked = cal["clickedEvent"].get("start")[:10]
+            # Aceptar solo si es sesión válida y no pasada
             if fclicked in SESIONES and dt.date.fromisoformat(fclicked) >= today:
                 fecha_seleccionada = fclicked
     except Exception:
         pass
 
-    # Selector si no viene del calendario
+    # Si no viene del calendario, usar selectbox con solo futuras
     if not fecha_seleccionada:
         st.subheader("📅 Selecciona fecha")
         if fechas_disponibles:
             etiqueta = {f: f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {SESIONES[f]}" for f in fechas_disponibles}
-            fecha_seleccionada = st.selectbox("Fechas con sesión", options=fechas_disponibles,
-                                              format_func=lambda f: etiqueta[f])
+            fecha_seleccionada = st.selectbox(
+                "Fechas con sesión",
+                options=fechas_disponibles,
+                format_func=lambda f: etiqueta[f]
+            )
         else:
             st.info("De momento no hay fechas futuras disponibles.")
             st.stop()
 
-    # ====== Bloque de reserva ======
+    # Bloque de reserva
     fkey = fecha_seleccionada
     hora_sesion = SESIONES.get(fkey, "—")
     st.write(f"### Sesión del **{dt.datetime.strptime(fkey,'%Y-%m-%d').strftime('%d/%m/%Y')}** a las **{hora_sesion}**")
@@ -561,6 +584,7 @@ else:
     libres_mini = plazas_libres(fkey, CATEG_MINI)
     libres_gran = plazas_libres(fkey, CATEG_GRANDE)
 
+    # Avisos grandes si alguna categoría está completa
     if libres_mini == 0:
         st.warning("⚠️ **Minibasket está COMPLETA.** Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
     if libres_gran == 0:
@@ -568,18 +592,20 @@ else:
 
     st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
 
-    # Tarjeta de éxito/espera en el lugar del formulario
-    placeholder = st.empty()
+    # =========== Formulario + Tarjeta de éxito (con “celebración” solo una vez) ===========
+    placeholder = st.empty()  # donde irá el form o la tarjeta
     ok_flag = f"ok_{fkey}"
     ok_data_key = f"ok_data_{fkey}"
+    celebrate_key = f"celebrate_{fkey}"
 
     if st.session_state.get(ok_flag):
+        # Mostrar tarjeta de éxito justo donde estaba el formulario
         data = st.session_state.get(ok_data_key, {})
         with placeholder.container():
             if data.get("status") == "ok":
                 st.success("✅ Inscripción realizada correctamente")
             else:
-                st.info("ℹ️ Te hemos añadido a la **lista de espera**")
+                st.info("ℹ️ Te hemos añadido a la lista de espera")
 
             st.markdown("#### Resumen")
             col1, col2 = st.columns(2)
@@ -593,29 +619,27 @@ else:
                 st.write(f"**Email:** {data.get('email','—')}")
 
             st.divider()
+            # Botón de justificante en PDF
+            if st.button("⬇️ Descargar justificante (PDF)", key=f"dl_{fkey}"):
+                pdf = crear_justificante_pdf(data)
+                st.download_button(
+                    label="Descargar ahora",
+                    data=pdf,
+                    file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}.pdf",
+                    mime="application/pdf",
+                    key=f"dl_btn_{fkey}"
+                )
 
-            # Botón para descargar justificante (PDF)
-            def _slug(s: str) -> str:
-                return "".join(ch for ch in (s or "") if ch.isalnum() or ch in ("-","_")).strip("_") or "jugador"
-
-            pdf = crear_justificante_pdf(data)
-            file_name = f"justificante_{data.get('status','ok')}_{data.get('fecha_iso','')}_{_slug(data.get('nombre',''))}.pdf"
-            st.download_button(
-                label="⬇️ Descargar justificante (PDF)",
-                data=pdf,
-                file_name=file_name,
-                mime="application/pdf",
-                use_container_width=True
-            )
-
-            st.divider()
+            # Botón para hacer otra reserva
             if st.button("Hacer otra reserva", key=f"otra_{fkey}"):
                 st.session_state.pop(ok_flag, None)
                 st.session_state.pop(ok_data_key, None)
                 st.rerun()
 
-        st.toast("Operación completada", icon="✅" if data.get("status")=="ok" else "ℹ️")
-        st.balloons()
+        # 🎉 Globos y toast SOLO una vez (justo tras confirmar)
+        if st.session_state.pop(celebrate_key, False) and data.get("status") == "ok":
+            st.toast("✅ Inscripción realizada correctamente", icon="✅")
+            st.balloons()
 
     else:
         with placeholder.form(f"form_{fkey}", clear_on_submit=True):
@@ -623,6 +647,7 @@ else:
             nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
             canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
 
+            # Select de equipo/categoría
             equipo_sel = st.selectbox(
                 "Categoría / Equipo (opcional)",
                 EQUIPOS_OPCIONES,
@@ -637,7 +662,7 @@ else:
             if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
                 equipo_val = equipo_sel
             elif equipo_sel == "Otro":
-                equipo_val = equipo_otro.strip()
+                equipo_val = (equipo_otro or "").strip()
 
             padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
             telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
@@ -660,11 +685,11 @@ else:
                             (equipo_val or ""), (padre or ""), telefono, (email or "")
                         ]
                         if libres_cat <= 0:
-                            # Pasa a lista de espera + tarjeta
+                            # Lista de espera
                             append_row("waitlist", row)
                             st.session_state[ok_flag] = True
                             st.session_state[ok_data_key] = {
-                                "status": "wl",
+                                "status": "wait",
                                 "fecha_iso": fkey,
                                 "fecha_txt": dt.datetime.strptime(fkey, "%Y-%m-%d").strftime("%d/%m/%Y"),
                                 "hora": hora_sesion,
@@ -675,10 +700,11 @@ else:
                                 "telefono": telefono,
                                 "email": (email or "—"),
                             }
+                            # No celebramos con globos en lista de espera
                             st.cache_data.clear()
                             st.rerun()
                         else:
-                            # Inscripción confirmada + tarjeta
+                            # Inscripción confirmada
                             append_row("inscripciones", row)
                             st.session_state[ok_flag] = True
                             st.session_state[ok_data_key] = {
@@ -693,7 +719,9 @@ else:
                                 "telefono": telefono,
                                 "email": (email or "—"),
                             }
+                            st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
                             st.cache_data.clear()
                             st.rerun()
                 else:
                     st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
+
