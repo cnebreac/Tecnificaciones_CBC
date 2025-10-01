@@ -31,7 +31,7 @@ EQUIPOS_OPCIONES = [
     "Cadete 1ºaño 2011",
     "Cadete 2ºaño 2010",
     "Junior 1ºaño 2009",
-    "Junior 2ºaño 2008",
+    "Junior 2ºaño 2008"
     "Senior"
 ]
 
@@ -250,19 +250,22 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     x_cat  = left + 11.0*cm
     x_team = left + 14.0*cm
 
-    # Segunda línea (alineada bajo Nombre / Canasta / Equipo)
-    x_tutor = x_name   # debajo de "Nombre"
-    x_tel   = x_cat    # debajo de "Canasta"
-    x_mail  = x_team   # debajo de "Equipo"
+    # Segunda línea (debajo de cada columna):
+    # - Email debajo de NOMBRE
+    # - Teléfono debajo de CANASTA
+    # - Tutor debajo de EQUIPO
+    x_email = x_name
+    x_tel   = x_cat
+    x_tutor = x_team
 
     # Anchos máximos
     w_name  = (x_cat  - x_name) - 0.2*cm
     w_cat   = (x_team - x_cat)  - 0.2*cm
     w_team  = (right  - x_team)
 
-    w_tutor = (x_tel  - x_tutor) - 0.3*cm
-    w_tel   = (x_mail - x_tel)   - 0.3*cm
-    w_mail  = (right  - x_mail)
+    w_email = (x_cat  - x_email) - 0.3*cm
+    w_tel   = (x_team - x_tel)   - 0.3*cm
+    w_tutor = (right  - x_tutor)
 
     # Espaciado vertical
     line_spacing        = 0.46*cm
@@ -312,12 +315,12 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
             c.drawString(x_cat,  y, fit_text(c, cat,   w_cat))
             c.drawString(x_team, y, fit_text(c, team,  w_team))
 
-            # Línea 2 (Tutor, Tel. y Email)
+            # Línea 2 (Email debajo de Nombre, Tel. debajo de Canasta, Tutor debajo de Equipo)
             y -= line_spacing
             c.setFont("Helvetica", 9)
-            c.drawString(x_tutor, y, "Tutor: " + fit_text(c, tutor, w_tutor, size=9))
+            c.drawString(x_email, y, "Email: " + fit_text(c, email, w_email, size=9))
             c.drawString(x_tel,   y, "Tel.: "  + fit_text(c, tel,   w_tel,   size=9))
-            c.drawString(x_mail,  y, "Email: " + fit_text(c, email, w_mail,  size=9))
+            c.drawString(x_tutor, y, "Tutor: " + fit_text(c, tutor, w_tutor, size=9))
 
             # Separador + aire extra
             y -= separator_offset
@@ -570,7 +573,7 @@ else:
         canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
         # Categoría/Equipo (select con opción "Otro")
         equipo_sel = st.selectbox(
-            "Categoría",
+            "Categoría / Equipo (opcional)",
             EQUIPOS_OPCIONES,
             index=0,
             key=f"equipo_sel_{fkey}"
