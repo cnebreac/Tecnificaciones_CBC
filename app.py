@@ -1,3 +1,7 @@
+### conda activate basketapp
+### streamlit run /Users/cnebreac/Desktop/Tecnificaciones_CBC/app.py
+### URL Admin + '?admin=1' y contraseña 'tecnifi2025' 
+
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -620,15 +624,16 @@ else:
 
             st.divider()
             # Botón de justificante en PDF
-            if st.button("⬇️ Descargar justificante (PDF)", key=f"dl_{fkey}"):
-                pdf = crear_justificante_pdf(data)
-                st.download_button(
-                    label="Descargar ahora",
-                    data=pdf,
-                    file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}.pdf",
-                    mime="application/pdf",
-                    key=f"dl_btn_{fkey}"
-                )
+            # Botón único de descarga de justificante (PDF)
+            pdf = crear_justificante_pdf(data)
+            st.download_button(
+                label="⬇️ Descargar justificante (PDF)",
+                data=pdf,
+                file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}.pdf",
+                mime="application/pdf",
+                key=f"dl_btn_{fkey}"
+            )
+
 
             # Botón para hacer otra reserva
             if st.button("Hacer otra reserva", key=f"otra_{fkey}"):
