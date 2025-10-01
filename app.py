@@ -566,59 +566,96 @@ else:
 
     st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
 
-    # ⬇️ Formulario con autolimpieza
-    with st.form(f"form_{fkey}", clear_on_submit=True):
-        st.write("📝 Información del jugador")
-        nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
-        canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
-        # Categoría/Equipo (select con opción "Otro")
-        equipo_sel = st.selectbox(
-            "Categoría / Equipo (opcional)",
-            EQUIPOS_OPCIONES,
-            index=0,
-            key=f"equipo_sel_{fkey}"
-        )
-        equipo_otro = ""
-        if equipo_sel == "Otro":
-            equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}")
+        # ⬇️ Formulario con “tarjeta de éxito” en el mismo sitio
+    # (reemplaza desde aquí hasta tu show_flash() actual si lo tenías)
+    placeholder = st.empty()  # donde irá el form o la tarjeta de éxito
+    ok_flag = f"ok_{fkey}"
+    ok_data_key = f"ok_data_{fkey}"
 
-        # Valor final a guardar en Sheets
-        equipo_val = ""
-        if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
-            equipo_val = equipo_sel
-        elif equipo_sel == "Otro":
-            equipo_val = equipo_otro.strip()
-        padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
-        telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
-        email = st.text_input("Email", key=f"email_{fkey}")  # ← NUEVO
-        enviar = st.form_submit_button("Reservar")
+    if st.session_state.get(ok_flag):
+        # Mostrar tarjeta de éxito justo donde estaba el formulario
+        data = st.session_state.get(ok_data_key, {})
+        with placeholder.container():
+            st.success("✅ Inscripción realizada correctamente")
+            st.markdown("#### Resumen")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**Jugador:** {data.get('nombre','—')}")
+                st.write(f"**Canasta:** {data.get('canasta','—')}")
+                st.write(f"**Categoría/Equipo:** {data.get('equipo','—')}")
+            with col2:
+                st.write(f"**Tutor:** {data.get('tutor','—')}")
+                st.write(f"**Tel.:** {data.get('telefono','—')}")
+                st.write(f"**Email:** {data.get('email','—')}")
 
-        if enviar:
-            if nombre and telefono:
-                ya = ya_existe_en_sesion(fkey, nombre)
-                if ya == "inscripciones":
-                    flash("❌ Este jugador ya está inscrito en esta sesión.", "error")
-                elif ya == "waitlist":
-                    flash("ℹ️ Este jugador ya está en lista de espera para esta sesión.", "warning")
-                else:
-                    libres_cat = plazas_libres(fkey, canasta)
-                    if libres_cat <= 0:
-                        append_row("waitlist", [
-                            dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey, hora_sesion, nombre, canasta, (equipo_val or ""), (padre or ""), telefono, (email or "")
-                        ])
-                        flash("⚠️ No hay plazas en esta categoría. Te hemos pasado a **lista de espera**.", "warning")
-                    else:
-                        append_row("inscripciones", [
-                            dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey, hora_sesion, nombre, canasta, (equipo_val or ""), (padre or ""), telefono, (email or "")
-                        ])
-                        flash("✅ Inscripción realizada correctamente.", "success")
-                st.cache_data.clear()
+            st.divider()
+            if st.button("Hacer otra reserva", key=f"otra_{fkey}"):
+                st.session_state.pop(ok_flag, None)
+                st.session_state.pop(ok_data_key, None)
                 st.rerun()
-            else:
-                st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
 
+        # Refuerzos visuales para que no pase desapercibido
+        st.toast("✅ Inscripción realizada correctamente", icon="✅")
+        st.balloons()
 
-    show_flash()
+    else:
+        with placeholder.form(f"form_{fkey}", clear_on_submit=True):
+            st.write("📝 Información del jugador")
+            nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
+            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
 
+            # Select de equipo/categoría (si ya lo tienes, deja tu lista de opciones)
+            if "EQUIPOS_OPCIONES" not in globals():
+                EQUIPOS_OPCIONES = ["— Selecciona —","Prebenjamín","Benjamín","Alevín","Infantil","Cadete","Junior","Sénior","Otro"]
+            equipo_sel = st.selectbox(
+                "Categoría / Equipo (opcional)",
+                EQUIPOS_OPCIONES,
+                index=0,
+                key=f"equipo_sel_{fkey}"
+            )
+            equipo_otro = ""
+            if equipo_sel == "Otro":
+                equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}")
+            equipo_val = ""
+            if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
+                equipo_val = equipo_sel
+            elif equipo_sel == "Otro":
+                equipo_val = equipo_otro.strip()
+
+            padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
+            telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
+            email = st.text_input("Email", key=f"email_{fkey}")
+
+            enviar = st.form_submit_button("Reservar")
+
+            if enviar:
+                if nombre and telefono:
+                    # Duplicados
+                    ya = ya_existe_en_sesion(fkey, nombre)
+                    if ya == "inscripciones":
+                        st.error("❌ Este jugador ya está inscrito en esta sesión.")
+                    elif ya == "waitlist":
+                        st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
+                    else:
+                        libres_cat = plazas_libres(fkey, canasta)
+                        row = [
+                            dt.datetime.now().isoformat(timespec="seconds"),
+                            fkey, hora_sesion, nombre, canasta,
+                            (equipo_val or ""), (padre or ""), telefono, (email or "")
+                        ]
+                        if libres_cat <= 0:
+                            st.warning("⚠️ No hay plazas en esta categoría. Te pasamos a **lista de espera**.")
+                            append_row("waitlist", row)
+                            # También puedes mostrar tarjeta de “lista de espera” si prefieres
+                        else:
+                            append_row("inscripciones", row)
+                            # Guardamos datos para la tarjeta de éxito y relanzamos
+                            st.session_state[ok_flag] = True
+                            st.session_state[ok_data_key] = {
+                                "nombre": nombre, "canasta": canasta, "equipo": (equipo_val or "—"),
+                                "tutor": (padre or "—"), "telefono": telefono, "email": (email or "—")
+                            }
+                        st.cache_data.clear()
+                        st.rerun()
+                else:
+                    st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
