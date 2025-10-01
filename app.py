@@ -31,7 +31,7 @@ EQUIPOS_OPCIONES = [
     "Cadete 1ºaño 2011",
     "Cadete 2ºaño 2010",
     "Junior 1ºaño 2009",
-    "Junior 2ºaño 2008"
+    "Junior 2ºaño 2008",
     "Senior"
 ]
 
