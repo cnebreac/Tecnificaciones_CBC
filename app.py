@@ -570,7 +570,7 @@ else:
         canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
         # Categoría/Equipo (select con opción "Otro")
         equipo_sel = st.selectbox(
-            "Categoría / Equipo (opcional)",
+            "Categoría",
             EQUIPOS_OPCIONES,
             index=0,
             key=f"equipo_sel_{fkey}"
