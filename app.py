@@ -17,6 +17,24 @@ MAX_POR_CANASTA = 4
 CATEG_MINI = "Minibasket"
 CATEG_GRANDE = "Canasta grande"
 
+# Opciones para Categoría/Equipo (edítalas a tu gusto)
+EQUIPOS_OPCIONES = [
+    "— Selecciona —",
+    "Escuela 1ºaño 2019",
+    "Escuela 2ºaño 2018",
+    "Benjamín 1ºaño 2017",
+    "Benjamín 1ºaño 2016",
+    "Alevín 1ºaño 2015",
+    "Alevín 2ºaño 2014",
+    "Infantil 1ºaño 2013",
+    "Infantil 2ºaño 2012",
+    "Cadete 1ºaño 2011",
+    "Cadete 2ºaño 2010",
+    "Junior 1ºaño 2009",
+    "Junior 2ºaño 2008"
+    "Senior"
+]
+
 # ====== CHEQUEOS DE SECRETS (SIN USAR VARIABLES NO DEFINIDAS) ======
 if "gcp_service_account" not in st.secrets:
     st.error("Faltan credenciales de Google en secrets: bloque [gcp_service_account].")
@@ -116,15 +134,21 @@ def load_df(sheet_name: str) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 def append_row(sheet_name: str, values: list):
+    """Añade la fila y, si falta la cabecera 'email', la crea al final de la fila 1."""
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
+    headers = ws.row_values(1)
+    lowered = [h.strip().lower() for h in headers]
+    if "email" not in lowered:
+        # crea cabecera 'email' al final de la fila 1
+        ws.update_cell(1, len(headers) + 1, "email")
     ws.append_row(values, value_input_option="USER_ENTERED")
 
 def get_inscripciones_por_fecha(fecha_iso: str) -> list:
     df = load_df("inscripciones")
     if df.empty:
         return []
-    need = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono"]
+    need = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
     for c in need:
         if c not in df.columns:
             df[c] = ""
@@ -134,11 +158,12 @@ def get_waitlist_por_fecha(fecha_iso: str) -> list:
     df = load_df("waitlist")
     if df.empty:
         return []
-    need = ["timestamp","fecha_iso","hora","nombre","canasta", "equipo", "tutor","telefono"]
+    need = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
     for c in need:
         if c not in df.columns:
             df[c] = ""
     return df[df["fecha_iso"] == fecha_iso][need].to_dict("records")
+
 
 # ====== CAPACIDAD POR CATEGORÍA ======
 def _match_canasta(valor: str, objetivo: str) -> bool:
@@ -224,15 +249,20 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     x_name = left + 0.9*cm
     x_cat  = left + 11.0*cm
     x_team = left + 14.0*cm
-    x_tutor = x_cat
-    x_tel   = x_team
+
+    # Segunda línea (alineada bajo Nombre / Canasta / Equipo)
+    x_tutor = x_name   # debajo de "Nombre"
+    x_tel   = x_cat    # debajo de "Canasta"
+    x_mail  = x_team   # debajo de "Equipo"
 
     # Anchos máximos
     w_name  = (x_cat  - x_name) - 0.2*cm
     w_cat   = (x_team - x_cat)  - 0.2*cm
     w_team  = (right  - x_team)
+
     w_tutor = (x_tel  - x_tutor) - 0.3*cm
-    w_tel   = (right  - x_tel)
+    w_tel   = (x_mail - x_tel)   - 0.3*cm
+    w_mail  = (right  - x_mail)
 
     # Espaciado vertical
     line_spacing        = 0.46*cm
@@ -273,6 +303,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
             team   = to_text(r.get("equipo",""))
             tutor  = to_text(r.get("tutor",""))
             tel    = to_text(r.get("telefono",""))
+            email  = to_text(r.get("email",""))
 
             # Línea 1
             c.setFont("Helvetica", 10)
@@ -281,11 +312,12 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
             c.drawString(x_cat,  y, fit_text(c, cat,   w_cat))
             c.drawString(x_team, y, fit_text(c, team,  w_team))
 
-            # Línea 2 (Tutor y Tel.)
+            # Línea 2 (Tutor, Tel. y Email)
             y -= line_spacing
             c.setFont("Helvetica", 9)
             c.drawString(x_tutor, y, "Tutor: " + fit_text(c, tutor, w_tutor, size=9))
             c.drawString(x_tel,   y, "Tel.: "  + fit_text(c, tel,   w_tel,   size=9))
+            c.drawString(x_mail,  y, "Email: " + fit_text(c, email, w_mail,  size=9))
 
             # Separador + aire extra
             y -= separator_offset
@@ -334,6 +366,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     c.save()
     buf.seek(0)
     return buf
+
 
 # ====== ESTADO ======
 if "is_admin" not in st.session_state:
@@ -460,9 +493,9 @@ else:
             else:
                 if ocupadas_mini >= MAX_POR_CANASTA: estado.append("Mini completa")
                 if ocupadas_gran >= MAX_POR_CANASTA: estado.append("Grande completa")
-            tooltip = f"Sesión {hora}" + (f" — {' · '.join(estado)}" if estado else "")
+            label = hora if hora != "Cancelada" else "Cancelada"  # sin la palabra "Sesión"
             events.append({
-                "title": tooltip,
+                "title": label,
                 "start": f,
                 "end": f,
                 "display": "auto",
@@ -531,19 +564,34 @@ else:
     st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
 
     # ⬇️ Formulario con autolimpieza
-    # ⬇️ Formulario con autolimpieza
     with st.form(f"form_{fkey}", clear_on_submit=True):
         st.write("📝 Información del jugador")
         nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
         canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
-        equipo = st.text_input("Categoría", key=f"equipo_{fkey}")  # <- etiqueta corregida
+        # Categoría/Equipo (select con opción "Otro")
+        equipo_sel = st.selectbox(
+            "Categoría / Equipo (opcional)",
+            EQUIPOS_OPCIONES,
+            index=0,
+            key=f"equipo_sel_{fkey}"
+        )
+        equipo_otro = ""
+        if equipo_sel == "Otro":
+            equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}")
+
+        # Valor final a guardar en Sheets
+        equipo_val = ""
+        if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
+            equipo_val = equipo_sel
+        elif equipo_sel == "Otro":
+            equipo_val = equipo_otro.strip()
         padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
         telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
+        email = st.text_input("Email", key=f"email_{fkey}")  # ← NUEVO
         enviar = st.form_submit_button("Reservar")
 
         if enviar:
             if nombre and telefono:
-                # Duplicados por nombre y apellidos
                 ya = ya_existe_en_sesion(fkey, nombre)
                 if ya == "inscripciones":
                     flash("❌ Este jugador ya está inscrito en esta sesión.", "error")
@@ -554,21 +602,20 @@ else:
                     if libres_cat <= 0:
                         append_row("waitlist", [
                             dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey, hora_sesion, nombre, canasta, (equipo or ""), (padre or ""), telefono
+                            fkey, hora_sesion, nombre, canasta, (equipo_val or ""), (padre or ""), telefono, (email or "")
                         ])
                         flash("⚠️ No hay plazas en esta categoría. Te hemos pasado a **lista de espera**.", "warning")
                     else:
                         append_row("inscripciones", [
                             dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey, hora_sesion, nombre, canasta, (equipo or ""), (padre or ""), telefono
+                            fkey, hora_sesion, nombre, canasta, (equipo_val or ""), (padre or ""), telefono, (email or "")
                         ])
                         flash("✅ Inscripción realizada correctamente.", "success")
                 st.cache_data.clear()
-                st.rerun()  # ← mantiene inputs limpios y counters actualizados
+                st.rerun()
             else:
                 st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
 
 
     show_flash()
-
 
