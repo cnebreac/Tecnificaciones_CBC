@@ -591,14 +591,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
         pass
     
     # >>> Leyenda del calendario
-    st.markdown("**Leyenda del calendario**")
-    col_r, col_y, col_g = st.columns(3)
-    with col_r:
-        st.markdown("🟥 **Rojo**: no hay plazas en ningún grupo")
-    with col_y:
-        st.markdown("🟨 **Amarillo**: solo hay plazas en uno de los grupos")
-    with col_g:
-        st.markdown("🟩 **Verde**: hay plazas en los dos grupos")
+    st.caption("🟥 Rojo: no hay plazas · 🟨 Amarillo: plazas en un grupo · 🟩 Verde: plazas en ambos grupos")
 
     # Si no viene del calendario, usar selectbox con solo futuras
     if not fecha_seleccionada:
