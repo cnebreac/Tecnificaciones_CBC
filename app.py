@@ -551,7 +551,9 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             })
 
         # >>> CSS: hoy con círculo, inicial de mes en mayúscula
+        # >>> CSS del calendario (vive DENTRO del iframe)
         custom_css = """
+        /* Hoy con círculo */
         .fc-daygrid-day.fc-day-today { background-color: transparent !important; }
         .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
             border: 2px solid navy;
@@ -561,39 +563,39 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             color: navy !important;
             font-weight: bold;
         }
+        
+        /* Inicial del mes en mayúscula */
         .fc-toolbar-title::first-letter { text-transform: uppercase; }
-        """
-
-        # >>> CSS móvil automático (compacto solo en pantallas pequeñas)
-        mobile_css = """
-        /* Calendario: título mes más pequeño en móvil */
-        @media (max-width: 640px) {
+        
+        /* ====== MODO COMPACTO AUTOMÁTICO PARA PANTALLAS PEQUEÑAS (DENTRO DEL IFRAME) ====== */
+        @media (max-width: 820px) {
+          /* Título más pequeño */
           .fc .fc-toolbar-title { font-size: 1rem; }
+          /* Cabecera y número del día compactos */
           .fc .fc-col-header-cell-cushion { padding: 4px 0; font-size: 0.75rem; }
           .fc .fc-daygrid-day-number { padding: 2px 6px; font-size: 0.8rem; }
           .fc .fc-daygrid-day-frame { padding: 2px; }
-          /* Streamlit: botones e inputs más compactos */
-          .stButton > button, .stDownloadButton > button { width: 100%; padding: 0.6rem 0.8rem; }
-          .stMarkdown p { margin-bottom: 0.4rem; }
-          [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; }
         }
         """
+
         st.markdown(f"<style>{mobile_css}</style>", unsafe_allow_html=True)
 
         cal = calendar(
             events=events,
             options={
                 "initialView": "dayGridMonth",
-                "height": 600,          # altura estándar; el CSS móvil ajusta densidad
-                "locale": "es",
-                "firstDay": 1,
+                "height": "auto",              # ← que se adapte a su contenedor
+                "expandRows": True,            # ← usa el alto disponible
                 "handleWindowResize": True,
                 "dayMaxEventRows": True,
+                "locale": "es",
+                "firstDay": 1,
                 "headerToolbar": {
                     "start": "title",
                     "center": "",
                     "end": "prev,next today"
                 },
+                "windowResizeDelay": 100       # ← evita saltos al redimensionar
             },
             custom_css=custom_css,
             key="cal",
@@ -657,13 +659,12 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             )
 
     # >>> Aviso importante (neutro, en negrita) justo encima del formulario
-    st.markdown("""
-**Importante para confirmar la reserva**
-
-Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
-Revisa los campos obligatorios o vuelve a intentarlo.  
-*(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
-""")
+    with st.expander("ℹ️ **IMPORTANTE para confirmar la reserva**", expanded=False):
+        st.markdown("""
+    Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
+    Revisa los campos obligatorios o vuelve a intentarlo.  
+    *(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
+        """)
 
     # =========== Formulario + Tarjeta de éxito (con “celebración” solo una vez) ===========
     placeholder = st.empty()  # donde irá el form o la tarjeta
