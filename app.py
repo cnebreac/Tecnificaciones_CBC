@@ -493,7 +493,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     with st.expander("ℹ️ Cómo usar esta web", expanded=False):
         st.markdown("""
 1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
-2. Selecciona la **Canasta** (Minibasket / Canasta Grande) y tu **Categoría/Equipo**.  
+2. Selecciona la **Canasta** (Minibasket / Canasta Grande) y tu **Categoría/Equipo** (**obligatorio**).  
 3. Rellena los **datos del jugador y del tutor** y pulsa **Reservar**.  
 4. Si la categoría está llena, entrarás **automáticamente en lista de espera***.  
 5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
@@ -564,7 +564,11 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             color: navy !important;
             font-weight: bold;
         }
+        .fc-toolbar-title::first-letter {
+            text-transform: uppercase;
+        }
         """
+
 
         cal = calendar(
             events=events,
@@ -585,15 +589,16 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                 fecha_seleccionada = fclicked
     except Exception:
         pass
-        
+    
     # >>> Leyenda del calendario
-    # >>> Leyenda del calendario (discreta)
-    st.caption("""
-    🟥 Rojo: no hay plazas en ningún grupo · 
-    🟨 Amarillo: plazas en solo un grupo · 
-    🟩 Verde: plazas en los dos grupos
-    """)
-
+    st.markdown("**Leyenda del calendario**")
+    col_r, col_y, col_g = st.columns(3)
+    with col_r:
+        st.markdown("🟥 **Rojo**: no hay plazas en ningún grupo")
+    with col_y:
+        st.markdown("🟨 **Amarillo**: solo hay plazas en uno de los grupos")
+    with col_g:
+        st.markdown("🟩 **Verde**: hay plazas en los dos grupos")
 
     # Si no viene del calendario, usar selectbox con solo futuras
     if not fecha_seleccionada:
@@ -791,3 +796,4 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                             st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
                             st.cache_data.clear()
                             st.rerun()
+
