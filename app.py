@@ -501,14 +501,6 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 \\* Si en algún momento alguien **cancela** o hay **ajustes de última hora**, pasarás a tener **plaza confirmada** en esa sesión. Se te informará a través del **correo electrónico facilitado**.
         """)
 
-    # >>> Nota importante (plegada) para no saturar con warnings
-    with st.expander("ℹ️ Importante para confirmar la reserva", expanded=False):
-        st.markdown("""
-Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
-Revisa los campos obligatorios o vuelve a intentarlo.  
-*(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
-        """)
-
     st.divider()
 
     today = dt.date.today()
@@ -641,7 +633,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             )
 
 
-    with st.expander("ℹ️ Importante para confirmar la reserva", expanded=False):
+    with st.expander("ℹ️ **IMPORTANTE para confirmar la reserva**", expanded=False):
         st.markdown("""
     Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
     Revisa los campos obligatorios o vuelve a intentarlo.  
@@ -790,4 +782,3 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
                             st.cache_data.clear()
                             st.rerun()
-
