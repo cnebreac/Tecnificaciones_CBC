@@ -356,7 +356,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
             c.setFont("Helvetica", 9)
             c.drawString(x_email, y, "Email: " + fit_text(c, email, w_email, size=9))
             c.drawString(x_tel,   y, "Tel.: "  + fit_text(c, tel,   w_tel,   size=9))
-            c.drawString(x_tutor, y, "Tutor: " + fit_text(c, tutor, w_tutor, size=9))
+            c.drawString(x_tutor, y, "Tutor: " + fit_text(c, tutor, w_tutor))
 
             # Separador + aire extra
             y -= separator_offset
@@ -478,26 +478,36 @@ else:
     # ====== SOLO USUARIO NORMAL ======
     st.title(APP_TITLE)
 
-    # >>> NUEVO: bienvenida y funcionamiento
+    # >>> Bienvenida y funcionamiento
     st.markdown("""
-    **Bienvenid@ a las Tecnificaciones CBC**  
-    Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendizaje de cada jugador/a.
+**Bienvenid@ a las Tecnificaciones CBC**  
+Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendizaje de cada jugador/a.
 
-    **Cómo funcionan**  
-    - Cada sesión se divide en **dos grupos**: **Minibasket** y **Canasta Grande**.  
-    - **Máximo 4 jugadores por grupo** (hasta 8 por sesión).  
-    - Trabajo **individualizado** en: manejo de balón, finalizaciones, tiro, lectura de juego, toma de decisiones, fundamentos defensivos y coordinación.
+**Cómo funcionan**  
+- Cada sesión se divide en **dos grupos**: **Minibasket** y **Canasta Grande**.  
+- **Máximo 4 jugadores por grupo** (hasta 8 por sesión).  
+- Trabajo **individualizado** en: manejo de balón, finalizaciones, tiro, lectura de juego, toma de decisiones, fundamentos defensivos y coordinación.
     """)
 
-        # >>> NUEVO: instrucciones de uso de la web
-    with st.expander("ℹ️ Cómo usar esta web", expanded=True):
-            st.markdown("""
-    1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
-    2. Selecciona **Canasta** (Minibasket / Canasta Grande) y, si quieres, tu **categoría/equipo**.  
-    3. Rellena los **datos del jugador y del tutor** y pulsa **Reservar**.  
-    4. Si la categoría está llena, entrarás **automáticamente en lista de espera**.  
-    5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
-    """)
+    # >>> Instrucciones de uso (plegadas)
+    with st.expander("ℹ️ Cómo usar esta web", expanded=False):
+        st.markdown("""
+1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
+2. Selecciona la **Canasta** (Minibasket / Canasta Grande) y tu **Categoría/Equipo** (**obligatorio**).  
+3. Rellena los **datos del jugador y del tutor** y pulsa **Reservar**.  
+4. Si la categoría está llena, entrarás **automáticamente en lista de espera***.  
+5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
+
+\\* Si en algún momento alguien **cancela** o hay **ajustes de última hora**, pasarás a tener **plaza confirmada** en esa sesión. Se te informará a través del **correo electrónico facilitado**.
+        """)
+
+    # >>> Nota importante (plegada) para no saturar con warnings
+    with st.expander("ℹ️ Importante para confirmar la reserva", expanded=False):
+        st.markdown("""
+Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
+Revisa los campos obligatorios o vuelve a intentarlo.  
+*(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
+        """)
 
     st.divider()
 
@@ -606,15 +616,17 @@ else:
     libres_mini = plazas_libres(fkey, CATEG_MINI)
     libres_gran = plazas_libres(fkey, CATEG_GRANDE)
 
-    # Avisos grandes si alguna categoría está completa
+    # >>> Aviso de capacidad unificado (un solo warning)
+    avisos = []
     if libres_mini == 0:
-        st.warning("⚠️ **Minibasket está COMPLETA.** Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
+        avisos.append("**Minibasket** está **COMPLETA**. Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
     if libres_gran == 0:
-        st.warning("⚠️ **Canasta grande está COMPLETA.** Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
+        avisos.append("**Canasta grande** está **COMPLETA**. Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
 
-    st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
-
-    st.warning("**Importante**: si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**. Revisa los campos obligatorios o vuelve a intentarlo. *(En lista de espera también se genera justificante, identificado como “Lista de espera”.)*")
+    if avisos:
+        st.warning("⚠️ " + "  \n• ".join([""] + avisos))
+    else:
+        st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
 
     # =========== Formulario + Tarjeta de éxito (con “celebración” solo una vez) ===========
     placeholder = st.empty()  # donde irá el form o la tarjeta
@@ -643,7 +655,6 @@ else:
                 st.write(f"**Email:** {data.get('email','—')}")
 
             st.divider()
-            # Botón de justificante en PDF
             # Botón único de descarga de justificante (PDF)
             pdf = crear_justificante_pdf(data)
             st.download_button(
@@ -653,7 +664,6 @@ else:
                 mime="application/pdf",
                 key=f"dl_btn_{fkey}"
             )
-
 
             # Botón para hacer otra reserva
             if st.button("Hacer otra reserva", key=f"otra_{fkey}"):
@@ -672,9 +682,9 @@ else:
             nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
             canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
 
-            # Select de equipo/categoría
+            # Select de equipo/categoría (OBLIGATORIO)
             equipo_sel = st.selectbox(
-                "Categoría / Equipo (opcional)",
+                "Categoría / Equipo",
                 EQUIPOS_OPCIONES,
                 index=0,
                 key=f"equipo_sel_{fkey}"
@@ -683,6 +693,7 @@ else:
             if equipo_sel == "Otro":
                 equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}")
 
+            # Normalización de valor obligatorio
             equipo_val = ""
             if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
                 equipo_val = equipo_sel
@@ -693,10 +704,24 @@ else:
             telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
             email = st.text_input("Email", key=f"email_{fkey}")
 
+            # Recordatorio sutil dentro del formulario
+            st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
+
             enviar = st.form_submit_button("Reservar")
 
             if enviar:
-                if nombre and telefono:
+                # Validaciones obligatorias
+                errores = []
+                if not nombre:
+                    errores.append("**nombre del jugador**")
+                if not telefono:
+                    errores.append("**teléfono**")
+                if not equipo_val:
+                    errores.append("**categoría/equipo** (obligatorio)")
+
+                if errores:
+                    st.error("Por favor, rellena: " + ", ".join(errores) + ".")
+                else:
                     ya = ya_existe_en_sesion(fkey, nombre)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
@@ -725,7 +750,6 @@ else:
                                 "telefono": telefono,
                                 "email": (email or "—"),
                             }
-                            # No celebramos con globos en lista de espera
                             st.cache_data.clear()
                             st.rerun()
                         else:
@@ -747,6 +771,3 @@ else:
                             st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
                             st.cache_data.clear()
                             st.rerun()
-                else:
-                    st.error("Por favor, rellena al menos: **nombre** y **teléfono**.")
-
