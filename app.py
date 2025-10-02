@@ -1,7 +1,3 @@
-### conda activate basketapp
-### streamlit run /Users/cnebreac/Desktop/Tecnificaciones_CBC/app.py
-### URL Admin + '?admin=1' y contraseña 'tecnifi2025' 
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -54,8 +50,8 @@ if not (_SID or _URL or _SID_BLOCK):
     st.stop()
 
 # ====== AJUSTES GENERALES ======
-st.set_page_config(page_title="Tecnificación Baloncesto", layout="centered")
-APP_TITLE = "🏀 Reserva de Sesiones - Tecnificación Baloncesto"
+st.set_page_config(page_title="Tecnificaciones CBC ", layout="centered")
+APP_TITLE = "🏀 Tecnificaciones CBC - Reserva de Sesiones"
 ADMIN_QUERY_FLAG = "admin"
 
 # ====== UTILS ======
@@ -480,8 +476,29 @@ if show_admin_login:
 
 else:
     # ====== SOLO USUARIO NORMAL ======
-    st.title(APP_TITLE)
-    st.caption("Reserva solo en las fechas activas. Si no ves tu fecha, es que no hay sesión ese día.")
+
+    # >>> NUEVO: bienvenida y funcionamiento
+    st.markdown("""
+    **Bienvenid@ a las Tecnificaciones CBC**  
+    Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendizaje de cada jugador/a.
+
+    **Cómo funcionan**  
+    - Cada sesión se divide en **dos grupos**: **Minibasket** y **Canasta Grande**.  
+    - **Máximo 4 jugadores por grupo** (hasta 8 por sesión).  
+    - Trabajo **individualizado** en: manejo de balón, finalizaciones, tiro, lectura de juego, toma de decisiones, fundamentos defensivos y coordinación.
+    """)
+
+        # >>> NUEVO: instrucciones de uso de la web
+    with st.expander("ℹ️ Cómo usar esta web", expanded=True):
+            st.markdown("""
+    1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
+    2. Selecciona **Canasta** (Minibasket / Canasta Grande) y, si quieres, tu **categoría/equipo**.  
+    3. Rellena los **datos del jugador y del tutor** y pulsa **Reservar**.  
+    4. Si la categoría está llena, entrarás **automáticamente en lista de espera**.  
+    5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
+    """)
+
+    st.divider()
 
     today = dt.date.today()
 
@@ -595,6 +612,8 @@ else:
         st.warning("⚠️ **Canasta grande está COMPLETA.** Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
 
     st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
+
+    st.warning("**Importante**: si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**. Revisa los campos obligatorios o vuelve a intentarlo. *(En lista de espera también se genera justificante, identificado como “Lista de espera”.)*")
 
     # =========== Formulario + Tarjeta de éxito (con “celebración” solo una vez) ===========
     placeholder = st.empty()  # donde irá el form o la tarjeta
