@@ -476,6 +476,7 @@ if show_admin_login:
 
 else:
     # ====== SOLO USUARIO NORMAL ======
+    st.title(APP_TITLE)
 
     # >>> NUEVO: bienvenida y funcionamiento
     st.markdown("""
