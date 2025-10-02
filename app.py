@@ -616,18 +616,37 @@ Revisa los campos obligatorios o vuelve a intentarlo.
     libres_mini = plazas_libres(fkey, CATEG_MINI)
     libres_gran = plazas_libres(fkey, CATEG_GRANDE)
 
-    # >>> Aviso de capacidad unificado (un solo warning)
+    # >>> Aviso de capacidad + info de plazas
     avisos = []
-    if libres_mini == 0:
+    if libres_mini <= 0:
         avisos.append("**Minibasket** está **COMPLETA**. Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
-    if libres_gran == 0:
+    if libres_gran <= 0:
         avisos.append("**Canasta grande** está **COMPLETA**. Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
 
+    # Warning único si hay categorías completas
     if avisos:
         st.warning("⚠️ " + "  \n• ".join([""] + avisos))
-    else:
-        st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
 
+    # Mostrar info de plazas siempre que no estén las dos completas
+    ambas_completas = (libres_mini <= 0 and libres_gran <= 0)
+    if not ambas_completas:
+        if libres_mini > 0 and libres_gran <= 0:
+            st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}")
+        elif libres_gran > 0 and libres_mini <= 0:
+            st.info(f"Plazas libres · {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
+        else:
+            st.info(
+                f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  "
+                f"{CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}"
+            )
+
+
+    with st.expander("ℹ️ Importante para confirmar la reserva", expanded=False):
+        st.markdown("""
+    Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
+    Revisa los campos obligatorios o vuelve a intentarlo.  
+    *(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
+        """)
     # =========== Formulario + Tarjeta de éxito (con “celebración” solo una vez) ===========
     placeholder = st.empty()  # donde irá el form o la tarjeta
     ok_flag = f"ok_{fkey}"
@@ -771,3 +790,4 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
                             st.cache_data.clear()
                             st.rerun()
+
