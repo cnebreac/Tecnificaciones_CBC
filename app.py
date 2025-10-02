@@ -287,6 +287,9 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     x_team = left + 14.0*cm
 
     # Segunda línea (debajo de cada columna):
+    # - Email debajo de NOMBRE
+    # - Teléfono debajo de CANASTA
+    # - Tutor debajo de EQUIPO
     x_email = x_name
     x_tel   = x_cat
     x_tutor = x_team
@@ -295,6 +298,7 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
     w_name  = (x_cat  - x_name) - 0.2*cm
     w_cat   = (x_team - x_cat)  - 0.2*cm
     w_team  = (right  - x_team)
+
     w_email = (x_cat  - x_email) - 0.3*cm
     w_tel   = (x_team - x_tel)   - 0.3*cm
     w_tutor = (right  - x_tutor)
@@ -550,10 +554,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                 "display": "auto",
             })
 
-        # >>> CSS: hoy con círculo, inicial de mes en mayúscula
-        # >>> CSS del calendario (vive DENTRO del iframe)
         custom_css = """
-        /* Hoy con círculo */
         .fc-daygrid-day.fc-day-today { background-color: transparent !important; }
         .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
             border: 2px solid navy;
@@ -563,39 +564,19 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             color: navy !important;
             font-weight: bold;
         }
-        
-        /* Inicial del mes en mayúscula */
-        .fc-toolbar-title::first-letter { text-transform: uppercase; }
-        
-        /* ====== MODO COMPACTO AUTOMÁTICO PARA PANTALLAS PEQUEÑAS (DENTRO DEL IFRAME) ====== */
-        @media (max-width: 820px) {
-          /* Título más pequeño */
-          .fc .fc-toolbar-title { font-size: 1rem; }
-          /* Cabecera y número del día compactos */
-          .fc .fc-col-header-cell-cushion { padding: 4px 0; font-size: 0.75rem; }
-          .fc .fc-daygrid-day-number { padding: 2px 6px; font-size: 0.8rem; }
-          .fc .fc-daygrid-day-frame { padding: 2px; }
+        .fc-toolbar-title::first-letter {
+            text-transform: uppercase;
         }
         """
 
-        st.markdown(f"<style>{mobile_css}</style>", unsafe_allow_html=True)
 
         cal = calendar(
             events=events,
             options={
                 "initialView": "dayGridMonth",
-                "height": "auto",              # ← que se adapte a su contenedor
-                "expandRows": True,            # ← usa el alto disponible
-                "handleWindowResize": True,
-                "dayMaxEventRows": True,
+                "height": 600,
                 "locale": "es",
                 "firstDay": 1,
-                "headerToolbar": {
-                    "start": "title",
-                    "center": "",
-                    "end": "prev,next today"
-                },
-                "windowResizeDelay": 100       # ← evita saltos al redimensionar
             },
             custom_css=custom_css,
             key="cal",
@@ -608,9 +589,16 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                 fecha_seleccionada = fclicked
     except Exception:
         pass
-
-    # >>> Leyenda del calendario (discreta)
-    st.caption("🟥 Rojo: no hay plazas · 🟨 Amarillo: plazas en un grupo · 🟩 Verde: plazas en ambos grupos")
+    
+    # >>> Leyenda del calendario
+    st.markdown("**Leyenda del calendario**")
+    col_r, col_y, col_g = st.columns(3)
+    with col_r:
+        st.markdown("🟥 **Rojo**: no hay plazas en ningún grupo")
+    with col_y:
+        st.markdown("🟨 **Amarillo**: solo hay plazas en uno de los grupos")
+    with col_g:
+        st.markdown("🟩 **Verde**: hay plazas en los dos grupos")
 
     # Si no viene del calendario, usar selectbox con solo futuras
     if not fecha_seleccionada:
@@ -658,14 +646,13 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                 f"{CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}"
             )
 
-    # >>> Aviso importante (neutro, en negrita) justo encima del formulario
+
     with st.expander("ℹ️ **IMPORTANTE para confirmar la reserva**", expanded=False):
         st.markdown("""
     Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
     Revisa los campos obligatorios o vuelve a intentarlo.  
     *(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
         """)
-
     # =========== Formulario + Tarjeta de éxito (con “celebración” solo una vez) ===========
     placeholder = st.empty()  # donde irá el form o la tarjeta
     ok_flag = f"ok_{fkey}"
@@ -809,4 +796,5 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                             st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
                             st.cache_data.clear()
                             st.rerun()
+
 
