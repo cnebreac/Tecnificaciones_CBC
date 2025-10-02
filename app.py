@@ -493,7 +493,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     with st.expander("ℹ️ Cómo usar esta web", expanded=False):
         st.markdown("""
 1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
-2. Selecciona la **Canasta** (Minibasket / Canasta Grande) y tu **Categoría/Equipo** (**obligatorio**).  
+2. Selecciona la **Canasta** (Minibasket / Canasta Grande) y tu **Categoría/Equipo**.  
 3. Rellena los **datos del jugador y del tutor** y pulsa **Reservar**.  
 4. Si la categoría está llena, entrarás **automáticamente en lista de espera***.  
 5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
