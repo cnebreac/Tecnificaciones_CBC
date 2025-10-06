@@ -6,10 +6,6 @@ import os
 
 # ====== CONFIGURACIÓN DE SESIONES DISPONIBLES ======
 SESIONES = {
-    "2025-10-05": "16:30",
-    "2025-09-05": "16:30",
-    "2025-10-11": "11:00",
-    "2025-10-16": "10:00",
 }
 
 # Capacidad por categoría
