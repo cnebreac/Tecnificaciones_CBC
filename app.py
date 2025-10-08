@@ -483,7 +483,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 - Cada sesión se divide en **dos grupos**: **Minibasket** y **Canasta Grande**.  
 - **Máximo 4 jugadores por grupo** (hasta 8 por sesión).  
 - Trabajo **individualizado** en: manejo de balón, finalizaciones, tiro, lectura de juego, toma de decisiones, fundamentos defensivos y coordinación.
-- **Política de Reorganización de Grupos: Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista de espera, se cancelará la sesión con menor asistencia para abrir una adicional en la categoría con más demanda.**
+**Política de Reorganización de Grupos: Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista de espera, se cancelará la sesión con menor asistencia para abrir una adicional en la categoría con más demanda.**
     """)
 
     # >>> Instrucciones de uso (plegadas)
