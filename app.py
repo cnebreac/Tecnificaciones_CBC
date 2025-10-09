@@ -112,20 +112,18 @@ def append_row(sheet_name: str, values: list):
 SESIONES_SHEET = "sesiones"  # pestaña para gestionar sesiones
 
 def _ensure_ws_sesiones():
-    """Garantiza que exista la pestaña 'sesiones' con cabeceras básicas."""
+    """Garantiza que exista la pestaña 'sesiones' con cabeceras básicas (fecha_iso, hora, estado)."""
     sh = _open_sheet()
     try:
         ws = sh.worksheet(SESIONES_SHEET)
-        # Asegurar cabeceras completas
         headers = ws.row_values(1)
-        needed = ["fecha_iso","hora","estado","mini_estado","grande_estado"]
+        needed = ["fecha_iso","hora","estado"]
         if headers != needed:
-            # Reconstruir cabeceras si faltan campos
-            ws.resize(rows=max(2, len(ws.get_all_values())), cols=5)
-            ws.update("A1:E1", [needed])
+            ws.resize(rows=max(2, len(ws.get_all_values())), cols=3)
+            ws.update("A1:C1", [needed])
     except Exception:
-        ws = sh.add_worksheet(title=SESIONES_SHEET, rows=100, cols=5)
-        ws.update("A1:E1", [["fecha_iso","hora","estado","mini_estado","grande_estado"]])
+        ws = sh.add_worksheet(title=SESIONES_SHEET, rows=100, cols=3)
+        ws.update("A1:C1", [["fecha_iso","hora","estado"]])
     return ws
 
 @st.cache_data(ttl=15)
@@ -134,70 +132,47 @@ def load_sesiones_df() -> pd.DataFrame:
     data = ws.get_all_records()
     df = pd.DataFrame(data)
     if df.empty:
-        df = pd.DataFrame(columns=["fecha_iso","hora","estado","mini_estado","grande_estado"])
-    # normaliza
-    for c in ["fecha_iso","hora","estado","mini_estado","grande_estado"]:
-        if c not in df.columns:
-            df[c] = ""
-    # valores por defecto
+        df = pd.DataFrame(columns=["fecha_iso","hora","estado"])
+    for c in ["fecha_iso","hora","estado"]:
+        if c not in df.columns: df[c] = ""
     df["estado"] = df["estado"].replace("", "ABIERTA").str.upper()
-    df["mini_estado"] = df["mini_estado"].replace("", "ABIERTA").str.upper()
-    df["grande_estado"] = df["grande_estado"].replace("", "ABIERTA").str.upper()
     return df
 
 def get_sesiones_dict() -> dict:
-    """
-    Devuelve:
-    {
-      'YYYY-MM-DD': {
-         'hora': 'HH:MM',
-         'estado': 'ABIERTA'|'CANCELADA',
-         'mini_estado': 'ABIERTA'|'CERRADA',
-         'grande_estado': 'ABIERTA'|'CERRADA'
-      }, ...
-    }
-    """
+    """Devuelve {fecha_iso: {'hora': 'HH:MM', 'estado': 'ABIERTA'|'CERRADA'}}"""
     df = load_sesiones_df()
     out = {}
     for _, r in df.iterrows():
         f = str(r["fecha_iso"]).strip()
-        if not f:
-            continue
+        if not f: continue
         out[f] = {
             "hora": str(r.get("hora","")).strip() or "—",
-            "estado": (str(r.get("estado","ABIERTA")).strip() or "ABIERTA").upper(),
-            "mini_estado": (str(r.get("mini_estado","ABIERTA")).strip() or "ABIERTA").upper(),
-            "grande_estado": (str(r.get("grande_estado","ABIERTA")).strip() or "ABIERTA").upper(),
+            "estado": (str(r.get("estado","ABIERTA")).strip() or "ABIERTA").upper()
         }
     return out
 
-def upsert_sesion(fecha_iso: str, hora: str,
-                  estado: str = "ABIERTA",
-                  mini_estado: str = "ABIERTA",
-                  grande_estado: str = "ABIERTA"):
-    """Crea o actualiza una sesión por fecha_iso (incluye estados por categoría)."""
+def upsert_sesion(fecha_iso: str, hora: str, estado: str = "ABIERTA"):
+    """Crea o actualiza una sesión por fecha_iso."""
     sh = _open_sheet()
     ws = _ensure_ws_sesiones()
     rows = ws.get_all_values()
     if not rows:
-        ws.update("A1:E1", [["fecha_iso","hora","estado","mini_estado","grande_estado"]])
+        ws.update("A1:C1", [["fecha_iso","hora","estado"]])
         rows = ws.get_all_values()
     header = rows[0]
     idx_fecha = header.index("fecha_iso") + 1
     for i, row in enumerate(rows[1:], start=2):
         if len(row) >= idx_fecha and (row[idx_fecha-1] or "").strip() == fecha_iso:
-            ws.update(f"A{i}:E{i}", [[fecha_iso, hora, estado.upper(), mini_estado.upper(), grande_estado.upper()]])
+            ws.update(f"A{i}:C{i}", [[fecha_iso, hora, estado.upper()]])
             return
-    ws.append_row([fecha_iso, hora, estado.upper(), mini_estado.upper(), grande_estado.upper()],
-                  value_input_option="USER_ENTERED")
+    ws.append_row([fecha_iso, hora, estado.upper()], value_input_option="USER_ENTERED")
 
 def delete_sesion(fecha_iso: str):
     """Elimina la sesión por fecha_iso."""
     sh = _open_sheet()
     ws = _ensure_ws_sesiones()
     rows = ws.get_all_values()
-    if not rows:
-        return
+    if not rows: return
     header = rows[0]
     idx_fecha = header.index("fecha_iso") + 1
     for i, row in enumerate(rows[1:], start=2):
@@ -205,39 +180,25 @@ def delete_sesion(fecha_iso: str):
             ws.delete_rows(i)
             return
 
-def set_estado_sesion(fecha_iso: str, estado: str = None,
-                      mini_estado: str = None, grande_estado: str = None):
-    """Cambia estado general y/o por categoría."""
+def set_estado_sesion(fecha_iso: str, estado: str):
+    """Cambia estado (ABIERTA/CERRADA)."""
     sh = _open_sheet()
     ws = _ensure_ws_sesiones()
     rows = ws.get_all_values()
-    if not rows:
-        return
+    if not rows: return
     header = rows[0]
     idx_fecha = header.index("fecha_iso") + 1
     idx_hora = header.index("hora") + 1
     idx_estado = header.index("estado") + 1
-    idx_mini = header.index("mini_estado") + 1
-    idx_grande = header.index("grande_estado") + 1
     for i, row in enumerate(rows[1:], start=2):
         if len(row) >= idx_fecha and (row[idx_fecha-1] or "").strip() == fecha_iso:
             hora = row[idx_hora-1] if len(row) >= idx_hora else "—"
-            cur_estado = row[idx_estado-1] if len(row) >= idx_estado else "ABIERTA"
-            cur_mini = row[idx_mini-1] if len(row) >= idx_mini else "ABIERTA"
-            cur_grande = row[idx_grande-1] if len(row) >= idx_grande else "ABIERTA"
-            ws.update(f"A{i}:E{i}", [[
-                fecha_iso,
-                hora,
-                (estado or cur_estado).upper(),
-                (mini_estado or cur_mini).upper(),
-                (grande_estado or cur_grande).upper()
-            ]])
+            ws.update(f"A{i}:C{i}", [[fecha_iso, hora, estado.upper()]])
             return
 
 def get_sesion_info(fecha_iso: str) -> dict:
-    return get_sesiones_dict().get(fecha_iso, {
-        "hora":"—", "estado":"ABIERTA", "mini_estado":"ABIERTA", "grande_estado":"ABIERTA"
-    })
+    """Atajo para {'hora','estado'}."""
+    return get_sesiones_dict().get(fecha_iso, {"hora":"—","estado":"ABIERTA"})
 
 # ====== LECTURA DE INSCRIPCIONES/WAITLIST ======
 def get_inscripciones_por_fecha(fecha_iso: str) -> list:
@@ -260,7 +221,7 @@ def get_waitlist_por_fecha(fecha_iso: str) -> list:
             df[c] = ""
     return df[df["fecha_iso"] == fecha_iso][need].to_dict("records")
 
-# ====== CAPACIDAD, DUPLICADOS, CIERRES ======
+# ====== CAPACIDAD, DUPLICADOS ======
 def _match_canasta(valor: str, objetivo: str) -> bool:
     v = (valor or "").strip().lower()
     o = objetivo.strip().lower()
@@ -270,20 +231,13 @@ def _match_canasta(valor: str, objetivo: str) -> bool:
         return v.startswith("canasta")
     return v == o
 
-def categoria_cerrada(fecha_iso: str, canasta: str) -> bool:
-    info = get_sesion_info(fecha_iso)
-    if _match_canasta(canasta, CATEG_MINI):
-        return info.get("mini_estado","ABIERTA").upper() == "CERRADA"
-    else:
-        return info.get("grande_estado","ABIERTA").upper() == "CERRADA"
-
 def plazas_ocupadas(fecha_iso: str, canasta: str) -> int:
     ins = get_inscripciones_por_fecha(fecha_iso)
     return sum(1 for r in ins if _match_canasta(r.get("canasta",""), canasta))
 
 def plazas_libres(fecha_iso: str, canasta: str) -> int:
-    # Si la categoría está cerrada, se consideran 0 libres
-    if categoria_cerrada(fecha_iso, canasta):
+    # Si la sesión está CERRADA, no hay plazas
+    if get_sesion_info(fecha_iso).get("estado","ABIERTA").upper() == "CERRADA":
         return 0
     return max(0, MAX_POR_CANASTA - plazas_ocupadas(fecha_iso, canasta))
 
@@ -475,7 +429,6 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
             y -= post_separator_gap
         return y
 
-    # Inscripciones
     c.setFont("Helvetica-Bold", 12)
     c.drawString(left, y, "Inscripciones confirmadas:")
     y -= 0.8*cm
@@ -491,7 +444,6 @@ def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
         y = pintar_lista(grande, "Canasta grande", y, start_idx=1)
         y = pintar_lista(mini,   "Minibasket",    y, start_idx=len(grande)+1)
 
-    # Espera
     y -= 1*cm
     c.setFont("Helvetica-Bold", 12)
     c.drawString(left, y, "Lista de espera:")
@@ -540,7 +492,7 @@ if show_admin_login:
         df_all_ins = load_df("inscripciones")
         df_all_wl  = load_df("waitlist")
 
-        # ===== Tabla de inscripciones / waitlist por sesión =====
+        # ===== Tabla de inscripciones / espera por sesión =====
         fechas_con_datos = sorted(set(df_all_ins.get("fecha_iso", []))
                                   .union(set(df_all_wl.get("fecha_iso", []))))
 
@@ -558,16 +510,10 @@ if show_admin_login:
             df_wl   = pd.DataFrame(wl_f)
 
             st.write("**Inscripciones:**")
-            if df_show.empty:
-                st.write("— Sin inscripciones —")
-            else:
-                st.dataframe(df_show, use_container_width=True)
+            st.dataframe(df_show if not df_show.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
 
             st.write("**Lista de espera:**")
-            if df_wl.empty:
-                st.write("— Vacía —")
-            else:
-                st.dataframe(df_wl, use_container_width=True)
+            st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
 
             if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
                 try:
@@ -582,33 +528,27 @@ if show_admin_login:
                     st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
 
         st.divider()
-        st.subheader("🗓️ Gestión de sesiones")
+        st.subheader("🗓️ Gestión de sesiones (simple)")
 
-        # --- Formulario para añadir/actualizar (incluye estados por categoría) ---
+        # --- Formulario para añadir/actualizar ---
         with st.form("form_sesiones_admin", clear_on_submit=True):
-            c1, c2, c3 = st.columns([1,1,1])
-            with c1:
+            col1, col2, col3 = st.columns([1,1,1])
+            with col1:
                 fecha_nueva = st.date_input("Fecha", value=dt.date.today())
-            with c2:
+            with col2:
                 hora_nueva = st.text_input("Hora (HH:MM)", value="16:30")
-            with c3:
-                estado_nuevo = st.selectbox("Estado sesión", ["ABIERTA", "CANCELADA"], index=0)
-
-            cc1, cc2 = st.columns(2)
-            with cc1:
-                mini_estado = st.selectbox("Minibasket", ["ABIERTA", "CERRADA"], index=0)
-            with cc2:
-                grande_estado = st.selectbox("Canasta grande", ["ABIERTA", "CERRADA"], index=0)
+            with col3:
+                estado_nuevo = st.selectbox("Estado sesión", ["ABIERTA", "CERRADA"], index=0)
 
             submitted = st.form_submit_button("➕ Añadir / Actualizar sesión")
             if submitted:
                 f_iso = fecha_nueva.isoformat()
-                upsert_sesion(f_iso, hora_nueva, estado_nuevo, mini_estado, grande_estado)
-                st.success(f"Sesión {f_iso} guardada ({estado_nuevo} · {hora_nueva} · Mini {mini_estado} · Grande {grande_estado}).")
+                upsert_sesion(f_iso, hora_nueva, estado_nuevo)
+                st.success(f"Sesión {f_iso} guardada ({estado_nuevo} · {hora_nueva}).")
                 st.cache_data.clear()
                 st.rerun()
 
-        # --- Tabla de sesiones con acciones rápidas ---
+        # --- Tabla de sesiones con acciones mínimas ---
         df_ses = load_sesiones_df()
         if df_ses.empty:
             st.info("No hay sesiones creadas todavía.")
@@ -625,47 +565,15 @@ if show_admin_login:
             fechas_ops = list(df_ses["fecha_iso"])
             if fechas_ops:
                 fsel = st.selectbox("Selecciona fecha", options=fechas_ops)
-                colA, colB, colC, colD, colE = st.columns(5)
-                with colA:
-                    if st.button("❌ Cancelar sesión", use_container_width=True):
-                        set_estado_sesion(fsel, estado="CANCELADA")
-                        st.success(f"Sesión {fsel} cancelada.")
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("⛔ Cerrar sesión (bloquear reservas)", use_container_width=True):
+                        set_estado_sesion(fsel, "CERRADA")
+                        st.info(f"Sesión {fsel} CERRADA. No admite reservas en ninguna categoría.")
                         st.cache_data.clear()
                         st.rerun()
-                with colB:
-                    if st.button("✅ Reabrir sesión", use_container_width=True):
-                        set_estado_sesion(fsel, estado="ABIERTA")
-                        st.success(f"Sesión {fsel} reabierta.")
-                        st.cache_data.clear()
-                        st.rerun()
-                with colC:
-                    if st.button("⛔ Cerrar Mini", use_container_width=True):
-                        set_estado_sesion(fsel, mini_estado="CERRADA")
-                        st.info(f"Minibasket cerrada en {fsel}.")
-                        st.cache_data.clear()
-                        st.rerun()
-                with colD:
-                    if st.button("🟢 Abrir Mini", use_container_width=True):
-                        set_estado_sesion(fsel, mini_estado="ABIERTA")
-                        st.success(f"Minibasket abierta en {fsel}.")
-                        st.cache_data.clear()
-                        st.rerun()
-                with colE:
-                    pass
-                colF, colG, colH = st.columns(3)
-                with colF:
-                    if st.button("⛔ Cerrar Grande", use_container_width=True):
-                        set_estado_sesion(fsel, grande_estado="CERRADA")
-                        st.info(f"Canasta grande cerrada en {fsel}.")
-                        st.cache_data.clear()
-                        st.rerun()
-                with colG:
-                    if st.button("🟢 Abrir Grande", use_container_width=True):
-                        set_estado_sesion(fsel, grande_estado="ABIERTA")
-                        st.success(f"Canasta grande abierta en {fsel}.")
-                        st.cache_data.clear()
-                        st.rerun()
-                with colH:
+                with c2:
                     if st.button("🗑️ Eliminar sesión", use_container_width=True):
                         delete_sesion(fsel)
                         st.warning(f"Sesión {fsel} eliminada.")
@@ -694,10 +602,10 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     SESIONES = get_sesiones_dict()
     today = dt.date.today()
 
-    # Solo sesiones futuras y ABIERTAS (sesión general)
+    # Solo sesiones futuras y ABIERTAS
     fechas_disponibles = sorted(
         [f for f, info in SESIONES.items()
-         if dt.date.fromisoformat(f) >= today and info.get("estado","ABIERTA") == "ABIERTA"]
+         if dt.date.fromisoformat(f) >= today and info.get("estado","ABIERTA").upper() == "ABIERTA"]
     )
 
     # Calendario
@@ -710,22 +618,24 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             fecha_dt = dt.date.fromisoformat(f)
             estado = info.get("estado","ABIERTA").upper()
             hora_etiq = info.get("hora","—")
-            mini_closed = info.get("mini_estado","ABIERTA").upper() == "CERRADA"
-            grande_closed = info.get("grande_estado","ABIERTA").upper() == "CERRADA"
 
             ocupadas_mini = plazas_ocupadas(f, CATEG_MINI)
             ocupadas_gran = plazas_ocupadas(f, CATEG_GRANDE)
 
-            # Color:
-            # - roja si pasada o sesión cancelada o ambas categorías cerradas/llenas,
-            # - amarilla si una categoría cerrada/llena,
-            # - verde si ambas abiertas con hueco.
-            if fecha_dt < today or estado == "CANCELADA":
+            # Colores:
+            # - Rojo (#dc3545): pasada o sin plazas en ambas
+            # - Naranja (#fd7e14): CERRADA (bloquea reservas)
+            # - Amarillo (#ffc107): una categoría llena
+            # - Verde (#28a745): ambas con hueco
+            if fecha_dt < today:
                 color = "#dc3545"
-                label = "Cancelada"
+                label = hora_etiq
+            elif estado == "CERRADA":
+                color = "#fd7e14"
+                label = "Cerrada"
             else:
-                full_mini = (ocupadas_mini >= MAX_POR_CANASTA) or mini_closed
-                full_gran = (ocupadas_gran >= MAX_POR_CANASTA) or grande_closed
+                full_mini = (ocupadas_mini >= MAX_POR_CANASTA)
+                full_gran = (ocupadas_gran >= MAX_POR_CANASTA)
                 if full_mini and full_gran:
                     color = "#dc3545"
                 elif full_mini or full_gran:
@@ -785,7 +695,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     except Exception:
         pass
 
-    st.caption("🟥 Rojo: cancelada / sin plazas en ambas · 🟨 Una categoría cerrada/llena · 🟩 Plazas en ambas")
+    st.caption("🟥 Rojo: pasada / sin plazas en ambas · 🟧 Naranja: cerrada (no admite reservas) · 🟨 Una categoría llena · 🟩 Plazas en ambas")
 
     # Select de fechas abiertas
     if not fecha_seleccionada:
@@ -809,22 +719,11 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     info_s = get_sesion_info(fkey)
     hora_sesion = info_s.get("hora","—")
     estado_sesion = info_s.get("estado","ABIERTA").upper()
-    mini_closed = info_s.get("mini_estado","ABIERTA").upper() == "CERRADA"
-    grande_closed = info_s.get("grande_estado","ABIERTA").upper() == "CERRADA"
 
     st.write(f"### Sesión del **{dt.datetime.strptime(fkey,'%Y-%m-%d').strftime('%d/%m/%Y')}** a las **{hora_sesion}**")
 
-    if estado_sesion == "CANCELADA":
-        st.error("Esta sesión está **CANCELADA** y no admite reservas.")
-        st.stop()
-
-    # Mensajes de cierre por categoría
-    if mini_closed and not grande_closed:
-        st.warning("⛔ **Minibasket** está **CERRADA** para esta fecha. Solo se aceptan reservas en **Canasta grande**.")
-    if grande_closed and not mini_closed:
-        st.warning("⛔ **Canasta grande** está **CERRADA** para esta fecha. Solo se aceptan reservas en **Minibasket**.")
-    if mini_closed and grande_closed:
-        st.error("⛔ Ambas categorías están **CERRADAS** para esta fecha.")
+    if estado_sesion == "CERRADA":
+        st.warning("Esta sesión está **CERRADA**: no admite más reservas en ninguna categoría.")
         st.stop()
 
     libres_mini = plazas_libres(fkey, CATEG_MINI)
@@ -832,9 +731,9 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 
     avisos = []
     if libres_mini <= 0:
-        avisos.append("**Minibasket** no admite más reservas (completa o cerrada).")
+        avisos.append("**Minibasket** está **COMPLETA**.")
     if libres_gran <= 0:
-        avisos.append("**Canasta grande** no admite más reservas (completa o cerrada).")
+        avisos.append("**Canasta grande** está **COMPLETA**.")
 
     if avisos:
         st.warning("⚠️ " + "  \n• ".join([""] + avisos))
@@ -905,12 +804,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
     else:
         with placeholder.form(f"form_{fkey}", clear_on_submit=True):
             st.write("📝 Información del jugador")
-            # Nota: no se puede deshabilitar una opción concreta del radio,
-            # por eso validamos al enviar si la categoría está cerrada.
-            canasta_default = CATEG_GRANDE if mini_closed and not grande_closed else CATEG_MINI
-            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], index=[CATEG_MINI, CATEG_GRANDE].index(canasta_default), horizontal=True)
-
             nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
+            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
 
             equipo_sel = st.selectbox(
                 "Categoría / Equipo",
@@ -945,12 +840,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 if not equipo_val:
                     errores.append("**categoría/equipo** (obligatorio)")
 
-                # Validar cierre por categoría
-                if categoria_cerrada(fkey, canasta):
-                    errores.append(f"**{canasta}** está **CERRADA** para esta fecha")
-
                 if errores:
-                    st.error("Por favor, corrige: " + "; ".join(errores) + ".")
+                    st.error("Por favor, rellena: " + ", ".join(errores) + ".")
                 else:
                     ya = ya_existe_en_sesion(fkey, nombre)
                     if ya == "inscripciones":
