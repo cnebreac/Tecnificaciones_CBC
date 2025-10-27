@@ -657,7 +657,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 - Cada sesión se divide en **dos grupos**: **Minibasket** y **Canasta Grande**.  
 - **Máximo 4 jugadores por grupo** (hasta 8 por sesión).  
 - Trabajo **individualizado** en: manejo de balón, finalizaciones, tiro, lectura de juego, toma de decisiones, fundamentos defensivos y coordinación.
-- Sesiones de 1 hora. 
+- Sesiones de **1 hora**. 
 - **Precio: 20€ (en efectivo el día de la sesión)**
 
 **Política de Reorganización de Grupos**  
