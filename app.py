@@ -662,6 +662,18 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista de espera, se cancelará la sesión con menor asistencia para abrir una adicional en la categoría con más demanda.
     """)
 
+        # >>> Instrucciones de uso (plegadas)
+    with st.expander("ℹ️ Cómo usar esta web", expanded=False):
+        st.markdown("""
+1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
+2. Selecciona la **Canasta** (Minibasket / Canasta Grande) y tu **Categoría/Equipo**.  
+3. Rellena los **datos del jugador y del tutor** y pulsa **Reservar**.  
+4. Si la categoría está llena, entrarás **automáticamente en lista de espera***.  
+5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
+
+\\* Si en algún momento alguien **cancela** o hay **ajustes de última hora**, pasarás a tener **plaza confirmada** en esa sesión. Se te informará a través del **correo electrónico facilitado**.
+        """)
+
     st.divider()
 
     # Refrescar sesiones (agrupadas por día)
