@@ -658,7 +658,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 - **Máximo 4 jugadores por grupo** (hasta 8 por sesión).  
 - Trabajo **individualizado** en: manejo de balón, finalizaciones, tiro, lectura de juego, toma de decisiones, fundamentos defensivos y coordinación.
 - Sesiones de 1 hora. 
-- Precio: 20€ (en efectivo el día de la sesión)
+- **Precio: 20€ (en efectivo el día de la sesión)**
 
 **Política de Reorganización de Grupos**  
 Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista de espera, se cancelará la sesión con menor asistencia para abrir una adicional en la categoría con más demanda.
