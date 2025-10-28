@@ -27,7 +27,8 @@ EQUIPOS_OPCIONES = [
     "Cadete 2ºaño 2010",
     "Junior 1ºaño 2009",
     "Junior 2ºaño 2008",
-    "Senior"
+    "Senior",
+    "Otro"
 ]
 
 # ====== CHEQUEOS DE SECRETS ======
