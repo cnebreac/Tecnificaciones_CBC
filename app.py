@@ -17,8 +17,6 @@ CATEG_GRANDE = "Canasta grande"
 
 EQUIPOS_OPCIONES = [
     "— Selecciona —",
-    "Escuela 1ºaño 2019",
-    "Escuela 2ºaño 2018",
     "Benjamín 1ºaño 2017",
     "Benjamín 2ºaño 2016",
     "Alevín 1ºaño 2015",
