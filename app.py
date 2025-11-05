@@ -103,35 +103,30 @@ def _parse_hora_cell(x: str) -> str:
 def _norm_fecha_iso(x) -> str:
     if x is None or x == "":
         return ""
-    # Fecha real de Python
     if isinstance(x, (dt.date, dt.datetime)):
         return (x.date() if isinstance(x, dt.datetime) else x).isoformat()
     s = str(x).strip()
-    # Ya en ISO
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
         return s
-    # dd/mm/yyyy (o d/m/yyyy)
     if re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", s):
         try:
             d = dt.datetime.strptime(s, "%d/%m/%Y").date()
             return d.isoformat()
         except Exception:
             pass
-    # Intento robusto con pandas (dayfirst=True)
     try:
         d = pd.to_datetime(s, dayfirst=True, errors="coerce")
         if pd.notna(d):
             return d.date().isoformat()
     except Exception:
         pass
-    # Serial Excel/Sheets (días desde 1899-12-30 en Google Sheets normalmente)
     try:
         val = float(s)
         base = dt.date(1899, 12, 30)
         d = base + dt.timedelta(days=int(val))
         return d.isoformat()
     except Exception:
-        return s  # último recurso (no rompe el filtrado si coincide exacto)
+        return s
 
 def hora_mas(h: str, minutos: int) -> str:
     base = _norm_hora(h)
@@ -161,7 +156,7 @@ def _open_sheet():
     st.error("Falta SHEETS_SPREADSHEET_URL o SHEETS_SPREADSHEET_ID en secrets.")
     st.stop()
 
-@st.cache_data(ttl=3)  # refresco muy rápido
+@st.cache_data(ttl=3)  # refresco rápido
 def load_df(sheet_name: str) -> pd.DataFrame:
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
@@ -278,7 +273,6 @@ def _prep_df_reservas(df: pd.DataFrame) -> pd.DataFrame:
     df = _ensure_cols(df.copy())
     df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
     df["hora"] = df["hora"].map(_parse_hora_cell)
-    # normaliza canasta (por si escribieron variantes)
     df["canasta"] = df["canasta"].astype(str).str.strip()
     return df
 
@@ -475,12 +469,6 @@ params = st.query_params
 show_admin_login = params.get(ADMIN_QUERY_FLAG, ["0"])
 show_admin_login = (isinstance(show_admin_login, list) and (show_admin_login[0] == "1")) or (show_admin_login == "1")
 
-# Botón global para forzar refresco de caché
-with st.sidebar:
-    if st.button("🔄 Refrescar datos (limpiar caché)"):
-        st.cache_data.clear()
-        st.success("Caché limpiada.")
-
 if show_admin_login:
     # ====== SOLO ADMIN ======
     st.title("🛠️ Panel de administración")
@@ -496,6 +484,12 @@ if show_admin_login:
             else:
                 st.error("Contraseña incorrecta.")
     else:
+        # 🔄 Botón de refresco SOLO visible a admin autenticado
+        with st.sidebar:
+            if st.button("🔄 Refrescar datos (limpiar caché)"):
+                st.cache_data.clear()
+                st.success("Caché limpiada.")
+
         # ===== Tabla de inscripciones / espera por sesión (solo sesiones existentes y listables) =====
         df_all_ins = load_df("inscripciones")
         df_all_wl  = load_df("waitlist")
@@ -882,4 +876,3 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             }
                             st.session_state[celebrate_key] = True
                             st.cache_data.clear(); st.rerun()
-
