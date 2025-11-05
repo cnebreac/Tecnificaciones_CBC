@@ -72,22 +72,41 @@ def _norm_hora(h: str) -> str:
     h = (h or "").strip()
     if not h:
         return "—"
-    # Permitir "1130" => 11:30
     if re.fullmatch(r"\d{3,4}", h):
         if len(h) == 3:
-            h = "0" + h  # e.g., 930 -> 0930
+            h = "0" + h
         return f"{int(h[:2]):02d}:{int(h[2:]):02d}"
     m = re.match(r'^(\d{1,2})(?::?(\d{1,2}))?$', h)
     if m:
-        hh = int(m.group(1))
-        mm = int(m.group(2) or 0)
-        hh = max(0, min(23, hh))
-        mm = max(0, min(59, mm))
+        hh = int(m.group(1)); mm = int(m.group(2) or 0)
+        hh = max(0, min(23, hh)); mm = max(0, min(59, mm))
         return f"{hh:02d}:{mm:02d}"
     try:
         return dt.datetime.strptime(h[:5], "%H:%M").strftime("%H:%M")
     except Exception:
         return h
+
+_HHMM_RE = re.compile(
+    r'(?:(\d{1,2})[:hH](\d{2}))|(\b\d{3,4}\b)', re.UNICODE
+)
+def _parse_hora_cell(x: str) -> str:
+    """
+    Extrae la HORA DE INICIO desde valores tipo:
+      '09:30', '9:30', '09h30', '930', '09:30-10:30', '09:30 – 10:30', etc.
+    """
+    s = str(x or "").strip()
+    # Buscar HH:MM o HhMM
+    m = _HHMM_RE.search(s)
+    if m:
+        if m.group(1) and m.group(2):
+            hh = int(m.group(1)); mm = int(m.group(2))
+            return f"{hh:02d}:{mm:02d}"
+        if m.group(3):
+            raw = m.group(3)
+            if len(raw) == 3:
+                raw = "0" + raw
+            return f"{int(raw[:2]):02d}:{int(raw[2:]):02d}"
+    return _norm_hora(s)
 
 def hora_mas(h: str, minutos: int) -> str:
     base = _norm_hora(h)
@@ -121,7 +140,7 @@ def _open_sheet():
         st.error("Falta SHEETS_SPREADSHEET_URL o SHEETS_SPREADSHEET_ID en secrets.")
         st.stop()
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=5)  # reducir TTL para reflejar cambios manuales casi en tiempo real
 def load_df(sheet_name: str) -> pd.DataFrame:
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
@@ -154,7 +173,7 @@ def _ensure_ws_sesiones():
         ws.update("A1:C1", [["fecha_iso","hora","estado"]])
     return ws
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=5)
 def load_sesiones_df() -> pd.DataFrame:
     ws = _ensure_ws_sesiones()
     data = ws.get_all_records()
@@ -163,7 +182,8 @@ def load_sesiones_df() -> pd.DataFrame:
         df = pd.DataFrame(columns=["fecha_iso","hora","estado"])
     for c in ["fecha_iso","hora","estado"]:
         if c not in df.columns: df[c] = ""
-    df["hora"] = df["hora"].apply(_norm_hora)
+    # OJO: usar parser robusto por si alguien escribe rangos en la hora
+    df["hora"] = df["hora"].apply(_parse_hora_cell)
     df["estado"] = df["estado"].replace("", "ABIERTA").str.upper()
     return df
 
@@ -179,7 +199,7 @@ def get_sesiones_por_dia() -> dict:
             continue
         item = {
             "fecha_iso": f,
-            "hora": _norm_hora(str(r.get("hora","")).strip() or "—"),
+            "hora": _parse_hora_cell(str(r.get("hora","")).strip() or "—"),
             "estado": (str(r.get("estado","ABIERTA")).strip() or "ABIERTA").upper()
         }
         out.setdefault(f, []).append(item)
@@ -190,15 +210,15 @@ def get_sesion_info(fecha_iso: str, hora: str) -> dict:
     Devuelve {'hora','estado'} de la sesión exacta (fecha+hora).
     Si no existe, estado=ABIERTA por defecto.
     """
-    hora = _norm_hora(hora)
+    hora = _parse_hora_cell(hora)
     df = load_sesiones_df()
     if not df.empty:
         m = df[(df["fecha_iso"] == fecha_iso) & (df["hora"] == hora)]
         if not m.empty:
             r = m.iloc[0].to_dict()
-            return {"hora": _norm_hora(r.get("hora","—")),
+            return {"hora": _parse_hora_cell(r.get("hora","—")),
                     "estado": (str(r.get("estado","ABIERTA")) or "ABIERTA").upper()}
-    return {"hora": _norm_hora(hora or "—"), "estado": "ABIERTA"}
+    return {"hora": _parse_hora_cell(hora or "—"), "estado": "ABIERTA"}
 
 def upsert_sesion(fecha_iso: str, hora: str, estado: str = "ABIERTA"):
     ws = _ensure_ws_sesiones()
@@ -206,20 +226,20 @@ def upsert_sesion(fecha_iso: str, hora: str, estado: str = "ABIERTA"):
     if not rows:
         ws.update("A1:C1", [["fecha_iso","hora","estado"]])
         rows = ws.get_all_values()
-    hora = _norm_hora(hora)
+    hora_n = _parse_hora_cell(hora)
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) >= 2 and (row[0] or "").strip() == fecha_iso and _norm_hora(row[1]) == hora:
-            ws.update(f"A{i}:C{i}", [[fecha_iso, hora, estado.upper()]])
+        if len(row) >= 2 and (row[0] or "").strip() == fecha_iso and _parse_hora_cell(row[1]) == hora_n:
+            ws.update(f"A{i}:C{i}", [[fecha_iso, hora_n, estado.upper()]])
             return
-    ws.append_row([fecha_iso, hora, estado.upper()], value_input_option="USER_ENTERED")
+    ws.append_row([fecha_iso, hora_n, estado.upper()], value_input_option="USER_ENTERED")
 
 def delete_sesion(fecha_iso: str, hora: str):
     ws = _ensure_ws_sesiones()
     rows = ws.get_all_values()
     if not rows: return
-    hora = _norm_hora(hora)
+    hora_n = _parse_hora_cell(hora)
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) >= 2 and (row[0] or "").strip() == fecha_iso and _norm_hora(row[1]) == hora:
+        if len(row) >= 2 and (row[0] or "").strip() == fecha_iso and _parse_hora_cell(row[1]) == hora_n:
             ws.delete_rows(i)
             return
 
@@ -227,9 +247,9 @@ def set_estado_sesion(fecha_iso: str, hora: str, estado: str):
     ws = _ensure_ws_sesiones()
     rows = ws.get_all_values()
     if not rows: return
-    hora = _norm_hora(hora)
+    hora_n = _parse_hora_cell(hora)
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) >= 2 and (row[0] or "").strip() == fecha_iso and _norm_hora(row[1]) == hora:
+        if len(row) >= 2 and (row[0] or "").strip() == fecha_iso and _parse_hora_cell(row[1]) == hora_n:
             ws.update_cell(i, 3, estado.upper())
             return
 
@@ -246,9 +266,10 @@ def get_inscripciones_por_sesion(fecha_iso: str, hora: str) -> list:
     if df.empty:
         return []
     df = _ensure_cols(df)
-    df["hora"] = df["hora"].apply(_norm_hora)
-    hora = _norm_hora(hora)
-    m = df[(df["fecha_iso"] == fecha_iso) & (df["hora"] == hora)]
+    # usar parser robusto de hora (por si hay rangos escritos a mano)
+    df["hora"] = df["hora"].apply(_parse_hora_cell)
+    hora_n = _parse_hora_cell(hora)
+    m = df[(df["fecha_iso"] == fecha_iso) & (df["hora"] == hora_n)]
     return m.to_dict("records")
 
 def get_waitlist_por_sesion(fecha_iso: str, hora: str) -> list:
@@ -256,9 +277,9 @@ def get_waitlist_por_sesion(fecha_iso: str, hora: str) -> list:
     if df.empty:
         return []
     df = _ensure_cols(df)
-    df["hora"] = df["hora"].apply(_norm_hora)
-    hora = _norm_hora(hora)
-    m = df[(df["fecha_iso"] == fecha_iso) & (df["hora"] == hora)]
+    df["hora"] = df["hora"].apply(_parse_hora_cell)
+    hora_n = _parse_hora_cell(hora)
+    m = df[(df["fecha_iso"] == fecha_iso) & (df["hora"] == hora_n)]
     return m.to_dict("records")
 
 # ====== CAPACIDAD, DUPLICADOS ======
@@ -352,7 +373,7 @@ def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
     from reportlab.pdfbase.pdfmetrics import stringWidth
 
     d = dt.date.fromisoformat(fecha_iso)
-    hora = _norm_hora(hora)
+    hora = _parse_hora_cell(hora)
 
     lista = get_inscripciones_por_sesion(fecha_iso, hora)
     wl    = get_waitlist_por_sesion(fecha_iso, hora)
@@ -381,12 +402,12 @@ def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
     def fit_text(ca, text, max_w, font="Helvetica", size=10):
         if not text:
             return ""
-        if stringWidth(text, font, size) <= max_w:
+        from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+        if _sw(text, font, size) <= max_w:
             return text
-        ell = "…"
-        ell_w = stringWidth(ell, font, size)
+        ell = "…"; ell_w = _sw(ell, font, size)
         t = text
-        while t and stringWidth(t, font, size) + ell_w > max_w:
+        while t and _sw(t, font, size) + ell_w > max_w:
             t = t[:-1]
         return t + ell
 
@@ -530,53 +551,62 @@ if show_admin_login:
             else:
                 st.error("Contraseña incorrecta.")
     else:
+        # ===== Tabla de inscripciones / espera por sesión (solo sesiones existentes y listables) =====
         df_all_ins = load_df("inscripciones")
         df_all_wl  = load_df("waitlist")
 
-        # ===== Tabla de inscripciones / espera por sesión (fecha+hora) =====
-        fechas_horas = set()
-        if not df_all_ins.empty:
-            for _, r in df_all_ins.iterrows():
-                fechas_horas.add((r.get("fecha_iso",""), _norm_hora(r.get("hora",""))))
-        if not df_all_wl.empty:
-            for _, r in df_all_wl.iterrows():
-                fechas_horas.add((r.get("fecha_iso",""), _norm_hora(r.get("hora",""))))
-
-        fechas_horas = sorted([(f,h) for (f,h) in fechas_horas if f], key=lambda x:(x[0], x[1]))
-
-        if not fechas_horas:
-            st.info("Aún no hay sesiones con datos.")
+        df_ses_all = load_sesiones_df()
+        if df_ses_all.empty:
+            st.info("Aún no hay sesiones creadas.")
         else:
-            opciones = {
-                (f,h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {_norm_hora(h)}  ·  {get_sesion_info(f,h).get('estado','—')}"
-                for (f,h) in fechas_horas
-            }
-            f_h_admin = st.selectbox("Selecciona sesión (fecha + hora)", options=fechas_horas,
-                                     format_func=lambda t: opciones.get(t, f"{t[0]} · {t[1]}"))
+            df_ses_listables = df_ses_all[df_ses_all["estado"].isin(["ABIERTA", "CERRADA"])].copy()
 
-            f_sel, h_sel = f_h_admin
-            ins_f = get_inscripciones_por_sesion(f_sel, h_sel)
-            wl_f  = get_waitlist_por_sesion(f_sel, h_sel)
-            df_show = pd.DataFrame(ins_f)
-            df_wl   = pd.DataFrame(wl_f)
-
-            st.write("**Inscripciones:**")
-            st.dataframe(df_show if not df_show.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
-
-            st.write("**Lista de espera:**")
-            st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
-
-            if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
+            if df_ses_listables.empty:
+                st.info("No hay sesiones en estado ABIERTA o CERRADA.")
+            else:
                 try:
-                    pdf = crear_pdf_sesion(f_sel, h_sel)
-                    st.download_button(
-                        label="Descargar PDF",
-                        data=pdf,
-                        file_name=f"sesion_{f_sel}_{_norm_hora(h_sel)}.pdf",
-                        mime="application/pdf"
-                    )
-                except ModuleNotFoundError:
-                    st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
+                    df_ses_listables["__f"] = pd.to_datetime(df_ses_listables["fecha_iso"])
+                    df_ses_listables = df_ses_listables.sort_values(["__f","hora"]).drop(columns="__f")
+                except Exception:
+                    pass
+
+                fechas_horas = list(dict.fromkeys([(r["fecha_iso"], _parse_hora_cell(r["hora"]))
+                                                   for _, r in df_ses_listables.iterrows()]))
+
+                opciones = {
+                    (f,h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {h}  ·  {get_sesion_info(f,h).get('estado','—')}"
+                    for (f,h) in fechas_horas
+                }
+
+                f_h_admin = st.selectbox(
+                    "Selecciona sesión (fecha + hora)",
+                    options=fechas_horas,
+                    format_func=lambda t: opciones.get(t, f"{t[0]} · {t[1]}")
+                )
+
+                f_sel, h_sel = f_h_admin
+                ins_f = get_inscripciones_por_sesion(f_sel, h_sel)
+                wl_f  = get_waitlist_por_sesion(f_sel, h_sel)
+                df_show = pd.DataFrame(ins_f)
+                df_wl   = pd.DataFrame(wl_f)
+
+                st.write("**Inscripciones:**")
+                st.dataframe(df_show if not df_show.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
+
+                st.write("**Lista de espera:**")
+                st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
+
+                if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
+                    try:
+                        pdf = crear_pdf_sesion(f_sel, h_sel)
+                        st.download_button(
+                            label="Descargar PDF",
+                            data=pdf,
+                            file_name=f"sesion_{f_sel}_{_parse_hora_cell(h_sel)}.pdf",
+                            mime="application/pdf"
+                        )
+                    except ModuleNotFoundError:
+                        st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
 
         st.divider()
         st.subheader("🗓️ Gestión de sesiones (fecha + hora)")
@@ -595,7 +625,7 @@ if show_admin_login:
             if submitted:
                 f_iso = fecha_nueva.isoformat()
                 upsert_sesion(f_iso, hora_nueva, estado_nuevo)
-                st.success(f"Sesión {f_iso} { _norm_hora(hora_nueva) } guardada ({estado_nuevo}).")
+                st.success(f"Sesión {f_iso} { _parse_hora_cell(hora_nueva) } guardada ({estado_nuevo}).")
                 st.cache_data.clear()
                 st.rerun()
 
@@ -606,7 +636,7 @@ if show_admin_login:
         else:
             try:
                 df_ses["__f"] = pd.to_datetime(df_ses["fecha_iso"])
-                df_ses["hora"] = df_ses["hora"].apply(_norm_hora)
+                df_ses["hora"] = df_ses["hora"].apply(_parse_hora_cell)
                 df_ses = df_ses.sort_values(["__f","hora"]).drop(columns="__f")
             except Exception:
                 pass
@@ -614,13 +644,13 @@ if show_admin_login:
             st.dataframe(df_ses, use_container_width=True)
 
             st.markdown("#### Acciones sobre una sesión")
-            opciones_ses = [(r["fecha_iso"], _norm_hora(r["hora"])) for _, r in df_ses.iterrows()]
+            opciones_ses = [(r["fecha_iso"], _parse_hora_cell(r["hora"])) for _, r in df_ses.iterrows()]
             opciones_ses = list(dict.fromkeys(opciones_ses))  # sin duplicados exactos
             if opciones_ses:
                 fsel, hsel = st.selectbox(
                     "Selecciona sesión",
                     options=opciones_ses,
-                    format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_norm_hora(t[1])}"
+                    format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_parse_hora_cell(t[1])}"
                 )
 
                 c1, c2, c3 = st.columns(3)
@@ -662,7 +692,6 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista de espera, se cancelará la sesión con menor asistencia para abrir una adicional en la categoría con más demanda.
     """)
 
-        # >>> Instrucciones de uso (plegadas)
     with st.expander("ℹ️ Cómo usar esta web", expanded=False):
         st.markdown("""
 1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
@@ -701,7 +730,7 @@ Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista d
             else:
                 any_abierta = any(s["estado"] == "ABIERTA" for s in sesiones)
                 if not any_abierta:
-                    color = "#fd7e14"  # todas cerradas
+                    color = "#fd7e14"
                 else:
                     full_all = True
                     any_full = False
@@ -719,7 +748,6 @@ Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista d
                     else:
                         color = "#28a745"
 
-            # Fondo del día
             if fecha_dt != today:
                 events.append({
                     "title": "",
@@ -729,10 +757,9 @@ Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista d
                     "backgroundColor": color,
                 })
 
-            # 🔹 Una línea por sesión con su rango “HH:MM–HH:MM”
-            for s in sorted(sesiones, key=lambda x: _norm_hora(x["hora"])):
-                h_ini = _norm_hora(s["hora"])
-                h_fin = hora_mas(h_ini, 60)  # sesiones de 1 hora
+            for s in sorted(sesiones, key=lambda x: _parse_hora_cell(x["hora"])):
+                h_ini = _parse_hora_cell(s["hora"])
+                h_fin = hora_mas(h_ini, 60)
                 label = f"{h_ini}–{h_fin}"
                 events.append({
                     "title": label,
@@ -798,12 +825,12 @@ Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista d
         st.warning("Ese día no tiene sesiones abiertas.")
         st.stop()
 
-    horas_ops = sorted({_norm_hora(s["hora"]) for s in sesiones_del_dia})
+    horas_ops = sorted({_parse_hora_cell(s["hora"]) for s in sesiones_del_dia})
     hora_seleccionada = st.selectbox("⏰ Elige la hora", options=horas_ops)
 
     # Bloque de reserva para la sesión (fecha+hora)
     fkey = fecha_seleccionada
-    hkey = _norm_hora(hora_seleccionada)
+    hkey = _parse_hora_cell(hora_seleccionada)
     info_s = get_sesion_info(fkey, hkey)
     hora_sesion = info_s.get("hora","—")
     estado_sesion = info_s.get("estado","ABIERTA").upper()
@@ -875,7 +902,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             st.download_button(
                 label="⬇️ Descargar justificante (PDF)",
                 data=pdf,
-                file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}_{_norm_hora(data.get('hora','')).replace(':','')}.pdf",
+                file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}_{_parse_hora_cell(data.get('hora','')).replace(':','')}.pdf",
                 mime="application/pdf",
                 key=f"dl_btn_{fkey}_{hkey}"
             )
