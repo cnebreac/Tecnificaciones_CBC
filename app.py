@@ -79,15 +79,29 @@ def _norm_hora(h: str) -> str:
         hh = int(m.group(1)); mm = int(m.group(2) or 0)
         hh = max(0, min(23, hh)); mm = max(0, min(59, mm))
         return f"{hh:02d}:{mm:02d}"
+    # '09:30:00'
+    m2 = re.match(r'^(\d{1,2}):(\d{2}):\d{2}$', h)
+    if m2:
+        return f"{int(m2.group(1)):02d}:{int(m2.group(2)):02d}"
     try:
         return dt.datetime.strptime(h[:5], "%H:%M").strftime("%H:%M")
     except Exception:
         return h
 
-# Acepta '09:30', '9:30', '09h30', '930', '09:30-10:30', '09:30 – 10:30', etc. -> '09:30'
+# Acepta '09:30', '9:30', '09h30', '930', '09:30-10:30', '09:30 – 10:30', '09:30:00',
+# y objetos time/datetime → '09:30'
 _HHMM_RE = re.compile(r'(?:(\d{1,2})[:hH](\d{2}))|(\b\d{3,4}\b)', re.UNICODE)
-def _parse_hora_cell(x: str) -> str:
+def _parse_hora_cell(x) -> str:
+    if isinstance(x, dt.time):
+        return f"{x.hour:02d}:{x.minute:02d}"
+    if isinstance(x, dt.datetime):
+        return f"{x.hour:02d}:{x.minute:02d}"
     s = str(x or "").strip()
+    # primero, si hay patrón HH:MM:SS
+    mss = re.match(r'^(\d{1,2}):(\d{2}):\d{2}$', s)
+    if mss:
+        return f"{int(mss.group(1)):02d}:{int(mss.group(2)):02d}"
+    # luego, buscar primera hora válida en el texto
     m = _HHMM_RE.search(s)
     if m:
         if m.group(1) and m.group(2):
@@ -99,7 +113,7 @@ def _parse_hora_cell(x: str) -> str:
             return f"{int(raw[:2]):02d}:{int(raw[2:]):02d}"
     return _norm_hora(s)
 
-# Normaliza fecha: acepta 'YYYY-MM-DD', 'DD/MM/YYYY', fecha real de Sheets o serial Excel/Sheets
+# Normaliza fecha: ISO, dd/mm/yyyy, fecha real de Sheets o serial Excel/Sheets
 def _norm_fecha_iso(x) -> str:
     if x is None or x == "":
         return ""
@@ -120,6 +134,7 @@ def _norm_fecha_iso(x) -> str:
             return d.date().isoformat()
     except Exception:
         pass
+    # Serial Excel/Sheets
     try:
         val = float(s)
         base = dt.date(1899, 12, 30)
@@ -156,19 +171,36 @@ def _open_sheet():
     st.error("Falta SHEETS_SPREADSHEET_URL o SHEETS_SPREADSHEET_ID en secrets.")
     st.stop()
 
-@st.cache_data(ttl=3)  # refresco rápido
+# ---- Lectura robusta: get_all_values() + headers controlados (sin caché) ----
+_EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
+
+def _ws_to_df(ws) -> pd.DataFrame:
+    vals = ws.get_all_values()  # incluye celdas vacías
+    if not vals:
+        return pd.DataFrame(columns=_EXPECTED_HEADERS)
+    # Si la primera fila no tiene nuestras cabeceras exactas, la usamos como header igualmente
+    headers = [h.strip() for h in (vals[0] if vals else [])]
+    rows = vals[1:] if len(vals) > 1 else []
+    df = pd.DataFrame(rows, columns=headers) if headers else pd.DataFrame(rows)
+    # Asegurar todas las columnas esperadas
+    for c in _EXPECTED_HEADERS:
+        if c not in df.columns:
+            df[c] = ""
+    # Solo mantener las columnas esperadas (en orden)
+    df = df[_EXPECTED_HEADERS].copy()
+    return df
+
 def load_df(sheet_name: str) -> pd.DataFrame:
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
-    data = ws.get_all_records()
-    return pd.DataFrame(data)
+    return _ws_to_df(ws)
 
 def append_row(sheet_name: str, values: list):
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
     headers = ws.row_values(1)
     if not headers:
-        ws.update("A1:I1", [["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]])
+        ws.update("A1:I1", [_EXPECTED_HEADERS])
     ws.append_row(values, value_input_option="USER_ENTERED")
 
 # ====== SESIONES (en Google Sheets) ======
@@ -188,13 +220,14 @@ def _ensure_ws_sesiones():
         ws.update("A1:C1", [["fecha_iso","hora","estado"]])
     return ws
 
-@st.cache_data(ttl=3)
 def load_sesiones_df() -> pd.DataFrame:
     ws = _ensure_ws_sesiones()
-    data = ws.get_all_records()
-    df = pd.DataFrame(data)
-    if df.empty:
-        df = pd.DataFrame(columns=["fecha_iso","hora","estado"])
+    vals = ws.get_all_values()
+    if not vals:
+        return pd.DataFrame(columns=["fecha_iso","hora","estado"])
+    headers = [h.strip() for h in (vals[0] if vals else [])]
+    rows = vals[1:] if len(vals) > 1 else []
+    df = pd.DataFrame(rows, columns=headers) if headers else pd.DataFrame(rows)
     for c in ["fecha_iso","hora","estado"]:
         if c not in df.columns: df[c] = ""
     df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
@@ -263,8 +296,7 @@ def set_estado_sesion(fecha_iso: str, hora: str, estado: str):
 
 # ====== LECTURA DE INSCRIPCIONES/WAITLIST POR SESIÓN ======
 def _ensure_cols(df: pd.DataFrame) -> pd.DataFrame:
-    need = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
-    for c in need:
+    for c in _EXPECTED_HEADERS:
         if c not in df.columns:
             df[c] = ""
     return df
@@ -484,16 +516,13 @@ if show_admin_login:
             else:
                 st.error("Contraseña incorrecta.")
     else:
-        # 🔄 Botón de refresco SOLO visible a admin autenticado
+        # 🔄 Botón de refresco SOLO visible a admin autenticada (por si se quiere forzar)
         with st.sidebar:
             if st.button("🔄 Refrescar datos (limpiar caché)"):
                 st.cache_data.clear()
                 st.success("Caché limpiada.")
 
-        # ===== Tabla de inscripciones / espera por sesión (solo sesiones existentes y listables) =====
-        df_all_ins = load_df("inscripciones")
-        df_all_wl  = load_df("waitlist")
-
+        # ===== Tabla de inscripciones / espera por sesión (solo sesiones listables) =====
         df_ses_all = load_sesiones_df()
         if df_ses_all.empty:
             st.info("Aún no hay sesiones creadas.")
@@ -683,7 +712,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             padding: 2px 6px;
             background-color: #ffffff;
             color: navy !important;
-            font-weight: bold;
+            font-weight: bold.
         }
         .fc-toolbar-title::first-letter { text-transform: uppercase; }
         """
