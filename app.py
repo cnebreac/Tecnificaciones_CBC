@@ -906,23 +906,56 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             st.session_state[celebrate_key] = True
                             st.cache_data.clear(); st.rerun()
 
-import gspread, streamlit as st
+import streamlit as st
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
-if st.button("🔍 Probar acceso a Google Sheets"):
+def _drive_probe(file_id: str):
+    creds = Credentials.from_service_account_info(
+        dict(st.secrets["gcp_service_account"]),
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.readonly",
+        ],
+    )
     try:
-        creds = Credentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]),
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive.readonly",
-            ],
-        )
-        gc = gspread.authorize(creds)
-        sheet_id = st.secrets.get("SHEETS_SPREADSHEET_ID")
-        sh = gc.open_by_key(sheet_id)
-        st.success("✅ Acceso correcto. Hojas: " + ", ".join(ws.title for ws in sh.worksheets()))
+        drive = build("drive", "v3", credentials=creds, cache_discovery=False)
+        # supportsAllDrives=True es CLAVE para unidades compartidas
+        meta = drive.files().get(
+            fileId=file_id,
+            fields="id,name,owners(emailAddress,displayName),permissions(emailAddress,role),driveId,parents,trashed",
+            supportsAllDrives=True,
+        ).execute()
+        return {"ok": True, "meta": meta}
+    except HttpError as e:
+        return {
+            "ok": False,
+            "status": e.resp.status if hasattr(e, "resp") else None,
+            "reason": getattr(e, "error_details", None),
+            "message": str(e),
+        }
     except Exception as e:
-        st.error(f"❌ Sigue sin acceso: {type(e).__name__}: {e}")
-        st.info("Si la hoja está en una Unidad compartida, añade la service account como *miembro* de la Unidad (no solo del archivo).")
+        return {"ok": False, "status": None, "message": f"{type(e).__name__}: {e}"}
+
+st.markdown("### 🔎 Diagnóstico Drive/Sheets")
+if st.button("Ejecutar diagnóstico del ID"):
+    file_id = st.secrets.get("SHEETS_SPREADSHEET_ID") or "1N4RbbVNa3AKkjPmDOxYmvgO2z4lEsYLYpBlD3RjYd54"
+    res = _drive_probe(file_id)
+    if res.get("ok"):
+        st.success("✅ Drive files.get OK (el ID existe y es visible para la service account)")
+        st.json(res["meta"])
+        st.info("""
+Si aparece `driveId`, está en **Unidad compartida**. En ese caso, añade **la service account como miembro de la Unidad** (no solo del archivo).
+Si `trashed` = true → está en papelera (mueve o restaura).
+Comprueba también que la SA tenga al menos **reader** en el archivo y **miembro** en la Unidad.
+        """)
+    else:
+        st.error(f"❌ Drive files.get FALLÓ")
+        st.write(f"HTTP status: {res.get('status')}")
+        st.code(res.get("message"))
+        st.info("""
+• 404 → ID mal, archivo borrado/movido, o política que impide ser “visible”.
+• 403 → ID existe pero la cuenta de servicio **no tiene permiso**. Si es Unidad compartida, añade la SA como **miembro de la Unidad**.
+        """)
 
