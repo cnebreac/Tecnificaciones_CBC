@@ -905,3 +905,24 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             }
                             st.session_state[celebrate_key] = True
                             st.cache_data.clear(); st.rerun()
+
+import gspread, streamlit as st
+from google.oauth2.service_account import Credentials
+
+if st.button("🔍 Probar acceso a Google Sheets"):
+    try:
+        creds = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]),
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive.readonly",
+            ],
+        )
+        gc = gspread.authorize(creds)
+        sheet_id = st.secrets.get("SHEETS_SPREADSHEET_ID")
+        sh = gc.open_by_key(sheet_id)
+        st.success("✅ Acceso correcto. Hojas: " + ", ".join(ws.title for ws in sh.worksheets()))
+    except Exception as e:
+        st.error(f"❌ Sigue sin acceso: {type(e).__name__}: {e}")
+        st.info("Si la hoja está en una Unidad compartida, añade la service account como *miembro* de la Unidad (no solo del archivo).")
+
