@@ -155,7 +155,12 @@ def hora_mas(h: str, minutos: int) -> str:
 # ====== GOOGLE SHEETS ======
 import gspread
 from google.oauth2.service_account import Credentials
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
+# Usa ambos scopes (Sheets + Drive) también en la ruta "real", no solo en el probe
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
 
 def _gc():
     info = dict(st.secrets["gcp_service_account"])
@@ -164,12 +169,26 @@ def _gc():
 
 def _open_sheet():
     gc = _gc()
-    url = st.secrets.get("SHEETS_SPREADSHEET_URL")
-    sid = st.secrets.get("SHEETS_SPREADSHEET_ID") or (st.secrets.get("sheets") or {}).get("sheet_id")
-    if url: return gc.open_by_url(url)
-    if sid: return gc.open_by_key(sid)
-    st.error("Falta SHEETS_SPREADSHEET_URL o SHEETS_SPREADSHEET_ID en secrets.")
-    st.stop()
+    # Forzamos ID (mejor que URL)
+    sheet_id = (
+        st.secrets.get("SHEETS_SPREADSHEET_ID")
+        or (st.secrets.get("sheets") or {}).get("sheet_id")
+    )
+    if not sheet_id:
+        st.error("Falta SHEETS_SPREADSHEET_ID en secrets.")
+        st.stop()
+    try:
+        return gc.open_by_key(sheet_id)
+    except gspread.exceptions.APIError as e:
+        # Diagnóstico claro en UI
+        st.error("No puedo abrir la hoja por ID (Google Sheets).")
+        # Muestra datos clave para revisar permisos
+        st.code(f"""ID: {sheet_id}
+Service account: {st.secrets["gcp_service_account"].get("client_email","<sin_client_email>")}
+Excepción: {type(e).__name__}""")
+        st.info("Si la hoja está en **Unidad compartida**, añade la service account como **miembro de la Unidad** (no solo del archivo).")
+        st.stop()
+
 
 # ---- Lectura robusta: get_all_values() + headers controlados (sin caché) ----
 _EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
