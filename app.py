@@ -32,50 +32,6 @@ EQUIPOS_OPCIONES = [
 ]
 
 # ====== CHEQUEOS DE SECRETS ======
-
-_SHEETS_URL = st.secrets.get("SHEETS_SPREADSHEET_URL")
-_SHEETS_ID  = st.secrets.get("SHEETS_SPREADSHEET_ID") or (st.secrets.get("sheets") or {}).get("sheet_id")
-
-_ID_RE = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
-
-def _extract_id_from_url(url: str) -> str | None:
-    if not url:
-        return None
-    m = _ID_RE.search(url)
-    return m.group(1) if m else None
-
-def _diag_card(title: str, body: str):
-    with st.expander(f"🪪 {title}", expanded=False):
-        st.code(body)
-
-def _diag_api_error(e):
-    # gspread APIError puede no traer código en Streamlit Cloud; intentamos extraer lo que haya
-    try:
-        status = getattr(e, "response", None).status_code if getattr(e, "response", None) else None
-    except Exception:
-        status = None
-    st.error("No puedo abrir la hoja de cálculo (Google Sheets). Revisa la tarjeta de diagnóstico.")
-    _diag_card(
-        "Diagnóstico de Google Sheets",
-        f"""
-Posibles causas:
-• La hoja **no existe** (ID/URL mal en secrets).
-• El service account **no tiene permiso** (falta compartir).
-• Hoja en papelera / restringida por organización.
-
-Qué revisar:
-1) ID detectado: {(_extract_id_from_url(_SHEETS_URL) or _SHEETS_ID or '—')}
-2) URL en secrets: {(_SHEETS_URL or '—')}
-3) Comparte tu Google Sheet con este email (Editor):
-   {st.secrets['gcp_service_account'].get('client_email','<sin_client_email>')}
-4) En Google Drive, abre la hoja → “Compartir” → pega ese email → rol Editor.
-
-Detalle técnico (si disponible):
-• HTTP status: {status or 'desconocido'}
-• Excepción: {type(e).__name__}
-        """.strip()
-    )
-
 if "gcp_service_account" not in st.secrets:
     st.error("Faltan credenciales de Google en secrets: bloque [gcp_service_account].")
     st.stop()
@@ -199,11 +155,7 @@ def hora_mas(h: str, minutos: int) -> str:
 # ====== GOOGLE SHEETS ======
 import gspread
 from google.oauth2.service_account import Credentials
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.readonly",
-]
-
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 def _gc():
     info = dict(st.secrets["gcp_service_account"])
@@ -212,35 +164,12 @@ def _gc():
 
 def _open_sheet():
     gc = _gc()
-
-    # 1) Preferimos ID si está en secrets; si no, extraemos del URL.
-    sheet_id = _SHEETS_ID or _extract_id_from_url(_SHEETS_URL)
-
-    if not sheet_id:
-        st.error("Configura en secrets la hoja: SHEETS_SPREADSHEET_ID o SHEETS_SPREADSHEET_URL.")
-        _diag_card(
-            "Cómo configurar los secrets",
-            """
-En .streamlit/secrets.toml (o en la UI de Streamlit Cloud):
-SHEETS_SPREADSHEET_ID = "TU_ID"
-# o
-SHEETS_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/TU_ID/edit#gid=0"
-            """.strip()
-        )
-        st.stop()
-
-    # 2) Intento abrir por clave (estable); si falla, mostramos diagnóstico y paramos.
-    try:
-        sh = gc.open_by_key(sheet_id)
-        return sh
-    except gspread.exceptions.APIError as e:
-        _diag_api_error(e)
-        st.stop()
-    except Exception as e:
-        st.error("Fallo no esperado al abrir la hoja.")
-        _diag_card("Excepción no controlada", f"{type(e).__name__}: {e}")
-        st.stop()
-
+    url = st.secrets.get("SHEETS_SPREADSHEET_URL")
+    sid = st.secrets.get("SHEETS_SPREADSHEET_ID") or (st.secrets.get("sheets") or {}).get("sheet_id")
+    if url: return gc.open_by_url(url)
+    if sid: return gc.open_by_key(sid)
+    st.error("Falta SHEETS_SPREADSHEET_URL o SHEETS_SPREADSHEET_ID en secrets.")
+    st.stop()
 
 # ---- Lectura robusta: get_all_values() + headers controlados (sin caché) ----
 _EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
