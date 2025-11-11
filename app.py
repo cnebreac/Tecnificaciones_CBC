@@ -1,9 +1,11 @@
+# app.py
 import streamlit as st
 import pandas as pd
 from io import BytesIO
 import datetime as dt
 import os
 import re
+import time
 
 # ====== AJUSTES GENERALES ======
 st.set_page_config(page_title="Tecnificaciones CBC ", layout="centered")
@@ -152,18 +154,12 @@ def hora_mas(h: str, minutos: int) -> str:
     except Exception:
         return base
 
-# ====== Forzar Minibasket para Benjamín/Alevín ======
-MINI_KEYWORDS = ("benjamín", "alevín")
-
-def _force_mini_from_equipo(equipo: str) -> bool:
-    s = (equipo or "").strip().lower()
-    return any(k in s for k in MINI_KEYWORDS)
-
 # ====== GOOGLE SHEETS ======
 import gspread
+from gspread.exceptions import WorksheetNotFound, APIError
 from google.oauth2.service_account import Credentials
 
-# Usa ambos scopes (Sheets + Drive) también en la ruta "real"
+# Usa ambos scopes (Sheets + Drive) en todas las rutas
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.readonly",
@@ -180,6 +176,7 @@ def _open_sheet():
     sheet_id = (
         st.secrets.get("SHEETS_SPREADSHEET_ID")
         or (st.secrets.get("sheets") or {}).get("sheet_id")
+        or None
     )
     if not sheet_id:
         st.error("Falta SHEETS_SPREADSHEET_ID en secrets.")
@@ -187,86 +184,81 @@ def _open_sheet():
     try:
         return gc.open_by_key(sheet_id)
     except gspread.exceptions.APIError as e:
-        # Diagnóstico claro en UI
         st.error("No puedo abrir la hoja por ID (Google Sheets).")
-        # Muestra datos clave para revisar permisos
         st.code(f"""ID: {sheet_id}
 Service account: {st.secrets["gcp_service_account"].get("client_email","<sin_client_email>")}
 Excepción: {type(e).__name__}""")
         st.info("Si la hoja está en **Unidad compartida**, añade la service account como **miembro de la Unidad** (no solo del archivo).")
         st.stop()
 
-
-# ---- Lectura robusta: get_all_values() + headers controlados (sin caché) ----
+# ---- Cabeceras esperadas en inscripciones / waitlist ----
 _EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
 
-def _ws_to_df(ws) -> pd.DataFrame:
-    vals = ws.get_all_values()  # incluye celdas vacías
-    if not vals:
-        return pd.DataFrame(columns=_EXPECTED_HEADERS)
-    # Si la primera fila no tiene nuestras cabeceras exactas, la usamos como header igualmente
-    headers = [h.strip() for h in (vals[0] if vals else [])]
-    rows = vals[1:] if len(vals) > 1 else []
-    df = pd.DataFrame(rows, columns=headers) if headers else pd.DataFrame(rows)
-    # Asegurar todas las columnas esperadas
-    for c in _EXPECTED_HEADERS:
-        if c not in df.columns:
-            df[c] = ""
-    # Solo mantener las columnas esperadas (en orden)
-    df = df[_EXPECTED_HEADERS].copy()
-    return df
-
-def load_df(sheet_name: str) -> pd.DataFrame:
+# ====== CARGA CACHEADA (TTL=60s) ======
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_ws_df_cached(sheet_name: str) -> pd.DataFrame:
+    """Lee una pestaña y la normaliza (cacheada). Evita 429."""
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
-    return _ws_to_df(ws)
-
-def append_row(sheet_name: str, values: list):
-    sh = _open_sheet()
-    ws = sh.worksheet(sheet_name)
-    headers = ws.row_values(1)
-    if not headers:
-        ws.update("A1:I1", [_EXPECTED_HEADERS])
-    ws.append_row(values, value_input_option="USER_ENTERED")
-
-# ====== SESIONES (en Google Sheets) ======
-SESIONES_SHEET = "sesiones"
-
-def _ensure_ws_sesiones():
-    sh = _open_sheet()
-    try:
-        ws = sh.worksheet(SESIONES_SHEET)
-        headers = ws.row_values(1)
-        needed = ["fecha_iso","hora","estado"]
-        if headers != needed:
-            ws.resize(rows=max(2, len(ws.get_all_values())), cols=3)
-            ws.update("A1:C1", [needed])
-    except Exception:
-        ws = sh.add_worksheet(title=SESIONES_SHEET, rows=100, cols=3)
-        ws.update("A1:C1", [["fecha_iso","hora","estado"]])
-    return ws
-
-def load_sesiones_df() -> pd.DataFrame:
-    ws = _ensure_ws_sesiones()
     vals = ws.get_all_values()
     if not vals:
-        return pd.DataFrame(columns=["fecha_iso","hora","estado"])
-    headers = [h.strip() for h in (vals[0] if vals else [])]
+        if sheet_name == "sesiones":
+            return pd.DataFrame(columns=["fecha_iso","hora","estado"])
+        return pd.DataFrame(columns=_EXPECTED_HEADERS)
+    headers = [h.strip() for h in vals[0]]
     rows = vals[1:] if len(vals) > 1 else []
-    df = pd.DataFrame(rows, columns=headers) if headers else pd.DataFrame(rows)
-    for c in ["fecha_iso","hora","estado"]:
-        if c not in df.columns: df[c] = ""
-    df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
-    df["hora"] = df["hora"].map(_parse_hora_cell)
-    df["estado"] = df["estado"].replace("", "ABIERTA").str.upper()
+    df = pd.DataFrame(rows, columns=headers) if headers else pd.DataFrame()
+
+    def _ensure_cols(df: pd.DataFrame) -> pd.DataFrame:
+        for c in _EXPECTED_HEADERS:
+            if c not in df.columns:
+                df[c] = ""
+        return df
+
+    # Normalizaciones por tipo de hoja
+    if sheet_name == "sesiones":
+        for c in ["fecha_iso","hora","estado"]:
+            if c not in df.columns: df[c] = ""
+        df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
+        df["hora"] = df["hora"].map(_parse_hora_cell)
+        df["estado"] = df["estado"].replace("", "ABIERTA").str.upper()
+    else:
+        df = _ensure_cols(df)
+        df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
+        df["hora"] = df["hora"].map(_parse_hora_cell)
+        df["canasta"] = df["canasta"].astype(str).str.strip()
     return df
 
-def get_sesiones_por_dia() -> dict:
-    df = load_sesiones_df()
+@st.cache_data(ttl=60, show_spinner=False)
+def load_all_data():
+    """Carga TODO una vez (sesiones, inscripciones, waitlist)."""
+    sh = _open_sheet()
+    # Asegura que existe 'sesiones' solo si falta (sin tocar si ya existe)
+    try:
+        sh.worksheet("sesiones")
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title="sesiones", rows=100, cols=3)
+        ws.update("A1:C1", [["fecha_iso","hora","estado"]])
+
+    sesiones = _load_ws_df_cached("sesiones")
+    try:
+        ins = _load_ws_df_cached("inscripciones")
+    except WorksheetNotFound:
+        ins = pd.DataFrame(columns=_EXPECTED_HEADERS)
+    try:
+        wl = _load_ws_df_cached("waitlist")
+    except WorksheetNotFound:
+        wl = pd.DataFrame(columns=_EXPECTED_HEADERS)
+    return {"sesiones": sesiones, "ins": ins, "wl": wl}
+
+# ====== HELPERS EN MEMORIA ======
+def get_sesiones_por_dia_cached() -> dict:
+    df = load_all_data()["sesiones"]
     out = {}
     for _, r in df.iterrows():
         f = str(r["fecha_iso"]).strip()
-        if not f: continue
+        if not f:
+            continue
         item = {
             "fecha_iso": f,
             "hora": _parse_hora_cell(str(r.get("hora","")).strip() or "—"),
@@ -275,84 +267,33 @@ def get_sesiones_por_dia() -> dict:
         out.setdefault(f, []).append(item)
     return out
 
-def get_sesion_info(fecha_iso: str, hora: str) -> dict:
-    hora = _parse_hora_cell(hora)
-    df = load_sesiones_df()
-    if not df.empty:
-        m = df[(df["fecha_iso"] == _norm_fecha_iso(fecha_iso)) & (df["hora"] == hora)]
-        if not m.empty:
-            r = m.iloc[0].to_dict()
-            return {"hora": _parse_hora_cell(r.get("hora","—")),
-                    "estado": (str(r.get("estado","ABIERTA")) or "ABIERTA").upper()}
-    return {"hora": _parse_hora_cell(hora or "—"), "estado": "ABIERTA"}
+def get_sesion_info_mem(fecha_iso: str, hora: str) -> dict:
+    df = load_all_data()["sesiones"]
+    h = _parse_hora_cell(hora)
+    f = _norm_fecha_iso(fecha_iso)
+    m = df[(df["fecha_iso"] == f) & (df["hora"] == h)]
+    if not m.empty:
+        r = m.iloc[0].to_dict()
+        return {"hora": _parse_hora_cell(r.get("hora","—")),
+                "estado": (str(r.get("estado","ABIERTA")) or "ABIERTA").upper()}
+    return {"hora": h, "estado": "ABIERTA"}
 
-def upsert_sesion(fecha_iso: str, hora: str, estado: str = "ABIERTA"):
-    ws = _ensure_ws_sesiones()
-    rows = ws.get_all_values()
-    if not rows:
-        ws.update("A1:C1", [["fecha_iso","hora","estado"]])
-        rows = ws.get_all_values()
-    f_iso = _norm_fecha_iso(fecha_iso)
-    hora_n = _parse_hora_cell(hora)
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
-            ws.update(f"A{i}:C{i}", [[f_iso, hora_n, estado.upper()]])
-            return
-    ws.append_row([f_iso, hora_n, estado.upper()], value_input_option="USER_ENTERED")
+def _inscripciones_mem(fecha_iso: str, hora: str) -> pd.DataFrame:
+    dfs = load_all_data()
+    f = _norm_fecha_iso(fecha_iso); h = _parse_hora_cell(hora)
+    ins = dfs["ins"]
+    if ins.empty:
+        return ins
+    return ins[(ins["fecha_iso"] == f) & (ins["hora"] == h)]
 
-def delete_sesion(fecha_iso: str, hora: str):
-    ws = _ensure_ws_sesiones()
-    rows = ws.get_all_values()
-    if not rows: return
-    f_iso = _norm_fecha_iso(fecha_iso)
-    hora_n = _parse_hora_cell(hora)
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
-            ws.delete_rows(i); return
+def _waitlist_mem(fecha_iso: str, hora: str) -> pd.DataFrame:
+    dfs = load_all_data()
+    f = _norm_fecha_iso(fecha_iso); h = _parse_hora_cell(hora)
+    wl = dfs["wl"]
+    if wl.empty:
+        return wl
+    return wl[(wl["fecha_iso"] == f) & (wl["hora"] == h)]
 
-def set_estado_sesion(fecha_iso: str, hora: str, estado: str):
-    ws = _ensure_ws_sesiones()
-    rows = ws.get_all_values()
-    if not rows: return
-    f_iso = _norm_fecha_iso(fecha_iso)
-    hora_n = _parse_hora_cell(hora)
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
-            ws.update_cell(i, 3, estado.upper()); return
-
-# ====== LECTURA DE INSCRIPCIONES/WAITLIST POR SESIÓN ======
-def _ensure_cols(df: pd.DataFrame) -> pd.DataFrame:
-    for c in _EXPECTED_HEADERS:
-        if c not in df.columns:
-            df[c] = ""
-    return df
-
-def _prep_df_reservas(df: pd.DataFrame) -> pd.DataFrame:
-    df = _ensure_cols(df.copy())
-    df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
-    df["hora"] = df["hora"].map(_parse_hora_cell)
-    df["canasta"] = df["canasta"].astype(str).str.strip()
-    return df
-
-def get_inscripciones_por_sesion(fecha_iso: str, hora: str) -> list:
-    df = load_df("inscripciones")
-    if df.empty: return []
-    df = _prep_df_reservas(df)
-    f_iso = _norm_fecha_iso(fecha_iso)
-    h_n = _parse_hora_cell(hora)
-    m = df[(df["fecha_iso"] == f_iso) & (df["hora"] == h_n)]
-    return m.to_dict("records")
-
-def get_waitlist_por_sesion(fecha_iso: str, hora: str) -> list:
-    df = load_df("waitlist")
-    if df.empty: return []
-    df = _prep_df_reservas(df)
-    f_iso = _norm_fecha_iso(fecha_iso)
-    h_n = _parse_hora_cell(hora)
-    m = df[(df["fecha_iso"] == f_iso) & (df["hora"] == h_n)]
-    return m.to_dict("records")
-
-# ====== CAPACIDAD, DUPLICADOS ======
 def _match_canasta(valor: str, objetivo: str) -> bool:
     v = (valor or "").strip().lower()
     o = objetivo.strip().lower()
@@ -362,24 +303,108 @@ def _match_canasta(valor: str, objetivo: str) -> bool:
         return v.startswith("canasta")
     return v == o
 
-def plazas_ocupadas(fecha_iso: str, hora: str, canasta: str) -> int:
-    ins = get_inscripciones_por_sesion(fecha_iso, hora)
-    return sum(1 for r in ins if _match_canasta(r.get("canasta",""), canasta))
-
-def plazas_libres(fecha_iso: str, hora: str, canasta: str) -> int:
-    if get_sesion_info(fecha_iso, hora).get("estado","ABIERTA").upper() == "CERRADA":
+def plazas_ocupadas_mem(fecha_iso: str, hora: str, canasta: str) -> int:
+    df_ins = _inscripciones_mem(fecha_iso, hora)
+    if df_ins.empty:
         return 0
-    return max(0, MAX_POR_CANASTA - plazas_ocupadas(fecha_iso, hora, canasta))
+    return sum(1 for _, r in df_ins.iterrows() if _match_canasta(r.get("canasta",""), canasta))
 
-def ya_existe_en_sesion(fecha_iso: str, hora: str, nombre: str) -> str | None:
+def plazas_libres_mem(fecha_iso: str, hora: str, canasta: str) -> int:
+    if get_sesion_info_mem(fecha_iso, hora).get("estado","ABIERTA").upper() == "CERRADA":
+        return 0
+    return max(0, MAX_POR_CANASTA - plazas_ocupadas_mem(fecha_iso, hora, canasta))
+
+def ya_existe_en_sesion_mem(fecha_iso: str, hora: str, nombre: str) -> str | None:
     nn = _norm_name(nombre)
-    for r in get_inscripciones_por_sesion(fecha_iso, hora):
+    for _, r in _inscripciones_mem(fecha_iso, hora).iterrows():
         if _norm_name(r.get("nombre","")) == nn:
             return "inscripciones"
-    for r in get_waitlist_por_sesion(fecha_iso, hora):
+    for _, r in _waitlist_mem(fecha_iso, hora).iterrows():
         if _norm_name(r.get("nombre","")) == nn:
             return "waitlist"
     return None
+
+# ====== ESCRITURAS CON BACKOFF + INVALIDACIÓN DE CACHÉ ======
+def _retry_gspread(call, *args, **kwargs):
+    last_exc = None
+    for i in range(5):
+        try:
+            return call(*args, **kwargs)
+        except APIError as e:
+            last_exc = e
+            msg = str(e)
+            # Backoff ante cuotas o 5xx
+            if "429" in msg or "quota" in msg.lower() or "500" in msg or "503" in msg:
+                time.sleep(1.5 * (2 ** i))
+                continue
+            raise
+    raise last_exc if last_exc else RuntimeError("Error desconocido en Google Sheets")
+
+def append_row(sheet_name: str, values: list):
+    sh = _open_sheet()
+    ws = sh.worksheet(sheet_name)
+    headers = ws.row_values(1)
+    if not headers:
+        _retry_gspread(ws.update, "A1:I1", [_EXPECTED_HEADERS])
+    _retry_gspread(ws.append_row, values, value_input_option="USER_ENTERED")
+    load_all_data.clear()  # invalidar cache para ver el cambio al instante
+
+SESIONES_SHEET = "sesiones"
+
+def upsert_sesion(fecha_iso: str, hora: str, estado: str = "ABIERTA"):
+    sh = _open_sheet()
+    try:
+        ws = sh.worksheet(SESIONES_SHEET)
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=SESIONES_SHEET, rows=100, cols=3)
+        _retry_gspread(ws.update, "A1:C1", [["fecha_iso","hora","estado"]])
+
+    rows = _retry_gspread(ws.get_all_values)
+    if not rows:
+        _retry_gspread(ws.update, "A1:C1", [["fecha_iso","hora","estado"]])
+        rows = _retry_gspread(ws.get_all_values)
+
+    f_iso = _norm_fecha_iso(fecha_iso)
+    hora_n = _parse_hora_cell(hora)
+
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
+            _retry_gspread(ws.update, f"A{i}:C{i}", [[f_iso, hora_n, estado.upper()]])
+            load_all_data.clear()
+            return
+
+    _retry_gspread(ws.append_row, [f_iso, hora_n, estado.upper()], value_input_option="USER_ENTERED")
+    load_all_data.clear()
+
+def delete_sesion(fecha_iso: str, hora: str):
+    sh = _open_sheet()
+    try:
+        ws = sh.worksheet(SESIONES_SHEET)
+    except WorksheetNotFound:
+        return
+    rows = _retry_gspread(ws.get_all_values)
+    f_iso = _norm_fecha_iso(fecha_iso)
+    hora_n = _parse_hora_cell(hora)
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
+            _retry_gspread(ws.delete_rows, i)
+            load_all_data.clear()
+            return
+
+def set_estado_sesion(fecha_iso: str, hora: str, estado: str):
+    sh = _open_sheet()
+    try:
+        ws = sh.worksheet(SESIONES_SHEET)
+    except WorksheetNotFound:
+        return
+    rows = _retry_gspread(ws.get_all_values)
+    f_iso = _norm_fecha_iso(fecha_iso)
+    hora_n = _parse_hora_cell(hora)
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
+            _retry_gspread(ws.update_cell, i, 3, estado.upper())
+            load_all_data.clear()
+            return
 
 # ====== PDF: JUSTIFICANTE INDIVIDUAL ======
 def crear_justificante_pdf(datos: dict) -> BytesIO:
@@ -429,13 +454,13 @@ def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
     d = pd.to_datetime(_norm_fecha_iso(fecha_iso)).date()
     hora = _parse_hora_cell(hora)
 
-    lista = get_inscripciones_por_sesion(fecha_iso, hora)
-    wl    = get_waitlist_por_sesion(fecha_iso, hora)
+    lista = _inscripciones_mem(fecha_iso, hora).to_dict("records")
+    wl    = _waitlist_mem(fecha_iso, hora).to_dict("records")
 
     ins_mini = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_MINI)]
     ins_gran = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
 
-    info_s = get_sesion_info(fecha_iso, hora)
+    info_s = get_sesion_info_mem(fecha_iso, hora)
     hora_lbl = info_s.get("hora","—")
 
     buf = BytesIO(); c = canvas.Canvas(buf, pagesize=A4)
@@ -450,9 +475,10 @@ def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
 
     def fit_text(text, max_w, font="Helvetica", size=10):
         if not text: return ""
-        if stringWidth(text, font, size) <= max_w: return text
-        ell = "…"; ell_w = stringWidth(ell, font, size); t = text
-        while t and stringWidth(t, font, size) + ell_w > max_w: t = t[:-1]
+        from reportlab.pdfbase.pdfmetrics import stringWidth as sw
+        if sw(text, font, size) <= max_w: return text
+        ell = "…"; ell_w = sw(ell, font, size); t = text
+        while t and sw(t, font, size) + ell_w > max_w: t = t[:-1]
         return t + ell
 
     left   = 2.0*cm; right  = width - 2.0*cm
@@ -546,10 +572,13 @@ if show_admin_login:
         with st.sidebar:
             if st.button("🔄 Refrescar datos (limpiar caché)"):
                 st.cache_data.clear()
+                load_all_data.clear()
                 st.success("Caché limpiada.")
 
         # ===== Tabla de inscripciones / espera por sesión (solo sesiones listables) =====
-        df_ses_all = load_sesiones_df()
+        dfs = load_all_data()
+        df_ses_all = dfs["sesiones"].copy()
+
         if df_ses_all.empty:
             st.info("Aún no hay sesiones creadas.")
         else:
@@ -567,7 +596,7 @@ if show_admin_login:
                 fechas_horas = list(dict.fromkeys([(r["fecha_iso"], _parse_hora_cell(r["hora"]))
                                                    for _, r in df_ses_listables.iterrows()]))
 
-                opciones = {(f,h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {h}  ·  {get_sesion_info(f,h).get('estado','—')}"
+                opciones = {(f,h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {h}  ·  {get_sesion_info_mem(f,h).get('estado','—')}"
                             for (f,h) in fechas_horas}
 
                 f_h_admin = st.selectbox(
@@ -577,8 +606,8 @@ if show_admin_login:
                 )
 
                 f_sel, h_sel = f_h_admin
-                ins_f = get_inscripciones_por_sesion(f_sel, h_sel)
-                wl_f  = get_waitlist_por_sesion(f_sel, h_sel)
+                ins_f = _inscripciones_mem(f_sel, h_sel).to_dict("records")
+                wl_f  = _waitlist_mem(f_sel, h_sel).to_dict("records")
                 df_show = pd.DataFrame(ins_f)
                 df_wl   = pd.DataFrame(wl_f)
 
@@ -618,11 +647,10 @@ if show_admin_login:
                 f_iso = _norm_fecha_iso(fecha_nueva)
                 upsert_sesion(f_iso, hora_nueva, estado_nuevo)
                 st.success(f"Sesión {f_iso} { _parse_hora_cell(hora_nueva) } guardada ({estado_nuevo}).")
-                st.cache_data.clear()
                 st.rerun()
 
         # --- Tabla de sesiones con acciones (fecha+hora) ---
-        df_ses = load_sesiones_df()
+        df_ses = load_all_data()["sesiones"].copy()
         if df_ses.empty:
             st.info("No hay sesiones creadas todavía.")
         else:
@@ -649,15 +677,15 @@ if show_admin_login:
                 with c1:
                     if st.button("⛔ Cerrar sesión (bloquear reservas)", use_container_width=True):
                         set_estado_sesion(fsel, hsel, "CERRADA")
-                        st.info(f"Sesión {fsel} {hsel} CERRADA."); st.cache_data.clear(); st.rerun()
+                        st.info(f"Sesión {fsel} {hsel} CERRADA."); st.rerun()
                 with c2:
                     if st.button("✅ Abrir sesión", use_container_width=True):
                         set_estado_sesion(fsel, hsel, "ABIERTA")
-                        st.success(f"Sesión {fsel} {hsel} ABIERTA."); st.cache_data.clear(); st.rerun()
+                        st.success(f"Sesión {fsel} {hsel} ABIERTA."); st.rerun()
                 with c3:
                     if st.button("🗑️ Eliminar sesión", use_container_width=True):
                         delete_sesion(fsel, hsel)
-                        st.warning(f"Sesión {fsel} {hsel} eliminada."); st.cache_data.clear(); st.rerun()
+                        st.warning(f"Sesión {fsel} {hsel} eliminada."); st.rerun()
 
 else:
     # ====== SOLO USUARIO NORMAL ======
@@ -688,8 +716,8 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 
     st.divider()
 
-    # Refrescar sesiones (agrupadas por día)
-    SESIONES_DIA = get_sesiones_por_dia()
+    # Refrescar sesiones (agrupadas por día) – en memoria / cacheado
+    SESIONES_DIA = get_sesiones_por_dia_cached()
     today = dt.date.today()
 
     # Días con alguna sesión ABIERTA en el futuro
@@ -717,8 +745,8 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                 else:
                     full_all = True; any_full = False
                     for s in sesiones:
-                        mm = plazas_libres(f, s["hora"], CATEG_MINI)
-                        gg = plazas_libres(f, s["hora"], CATEG_GRANDE)
+                        mm = plazas_libres_mem(f, s["hora"], CATEG_MINI)
+                        gg = plazas_libres_mem(f, s["hora"], CATEG_GRANDE)
                         if mm > 0 or gg > 0: full_all = False
                         if mm <= 0 or gg <= 0: any_full = True
                     color = "#dc3545" if full_all else "#ffc107" if any_full else "#28a745"
@@ -781,7 +809,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     # Bloque de reserva para la sesión (fecha+hora)
     fkey = _norm_fecha_iso(fecha_seleccionada)
     hkey = _parse_hora_cell(hora_seleccionada)
-    info_s = get_sesion_info(fkey, hkey)
+    info_s = get_sesion_info_mem(fkey, hkey)
     hora_sesion = info_s.get("hora","—")
     estado_sesion = info_s.get("estado","ABIERTA").upper()
 
@@ -791,8 +819,8 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
         st.warning("Esta sesión está **CERRADA**: no admite más reservas en ninguna categoría.")
         st.stop()
 
-    libres_mini = plazas_libres(fkey, hkey, CATEG_MINI)
-    libres_gran = plazas_libres(fkey, hkey, CATEG_GRANDE)
+    libres_mini = plazas_libres_mem(fkey, hkey, CATEG_MINI)
+    libres_gran = plazas_libres_mem(fkey, hkey, CATEG_GRANDE)
 
     avisos = []
     if libres_mini <= 0: avisos.append("**Minibasket** está **COMPLETA**.")
@@ -810,8 +838,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 
     with st.expander("ℹ️ **IMPORTANTE para confirmar la reserva**", expanded=False):
         st.markdown("""
-Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**,
-la **reserva NO se ha completado**.  
+Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
 Revisa los campos obligatorios o vuelve a intentarlo.  
 *(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
         """)
@@ -864,21 +891,11 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=True):
             st.write("📝 Información del jugador")
             nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
-
-            # Radio con clave controlada (para poder forzar visualmente Minibasket)
-            canasta_key = f"canasta_{fkey}_{hkey}"
-            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True, key=canasta_key)
+            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
 
             equipo_sel = st.selectbox("Categoría / Equipo", EQUIPOS_OPCIONES, index=0, key=f"equipo_sel_{fkey}_{hkey}")
             equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}_{hkey}") if equipo_sel == "Otro" else ""
             equipo_val = equipo_sel if (equipo_sel and equipo_sel not in ("— Selecciona —", "Otro")) else (equipo_otro or "").strip()
-
-            # 🔒 Forzar Minibasket si es Benjamín/Alevín (actualiza el radio y la variable)
-            if _force_mini_from_equipo(equipo_val):
-                if st.session_state.get(canasta_key) != CATEG_MINI:
-                    st.session_state[canasta_key] = CATEG_MINI
-                    st.info("Categoría Benjamín/Alevín → asignada automáticamente a **Minibasket**.")
-                canasta = CATEG_MINI
 
             padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}_{hkey}")
             telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}_{hkey}")
@@ -897,19 +914,16 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 if errores:
                     st.error("Por favor, rellena: " + ", ".join(errores) + ".")
                 else:
-                    # Recalcular canasta final por si cambió el equipo justo antes de enviar
-                    final_canasta = CATEG_MINI if _force_mini_from_equipo(equipo_val) else canasta
-
-                    ya = ya_existe_en_sesion(fkey, hkey, nombre)
+                    ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
                     elif ya == "waitlist":
                         st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
                     else:
-                        libres_cat = plazas_libres(fkey, hkey, final_canasta)
+                        libres_cat = plazas_libres_mem(fkey, hkey, canasta)
                         row = [
                             dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey, hora_sesion, nombre, final_canasta,
+                            fkey, hora_sesion, nombre, canasta,
                             (equipo_val or ""), (padre or ""), telefono, (email or "")
                         ]
                         if libres_cat <= 0:
@@ -921,7 +935,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                                 "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
                                 "hora": hora_sesion,
                                 "nombre": nombre,
-                                "canasta": final_canasta,
+                                "canasta": canasta,
                                 "equipo": (equipo_val or "—"),
                                 "tutor": (padre or "—"),
                                 "telefono": telefono,
@@ -937,7 +951,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                                 "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
                                 "hora": hora_sesion,
                                 "nombre": nombre,
-                                "canasta": final_canasta,
+                                "canasta": canasta,
                                 "equipo": (equipo_val or "—"),
                                 "tutor": (padre or "—"),
                                 "telefono": telefono,
@@ -946,14 +960,13 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             st.session_state[celebrate_key] = True
                             st.rerun()
 
-# ====== DIAGNÓSTICO DRIVE/SHEETS (opcional en UI) ======
-import streamlit as st
-from google.oauth2.service_account import Credentials
+# ====== DIAGNÓSTICO DRIVE/SHEETS OPCIONAL ======
+from google.oauth2.service_account import Credentials as _DiagCreds
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 def _drive_probe(file_id: str):
-    creds = Credentials.from_service_account_info(
+    creds = _DiagCreds.from_service_account_info(
         dict(st.secrets["gcp_service_account"]),
         scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
@@ -962,7 +975,6 @@ def _drive_probe(file_id: str):
     )
     try:
         drive = build("drive", "v3", credentials=creds, cache_discovery=False)
-        # supportsAllDrives=True es CLAVE para unidades compartidas
         meta = drive.files().get(
             fileId=file_id,
             fields="id,name,owners(emailAddress,displayName),permissions(emailAddress,role),driveId,parents,trashed",
@@ -999,5 +1011,4 @@ Comprueba también que la SA tenga al menos **reader** en el archivo y **miembro
 • 404 → ID mal, archivo borrado/movido, o política que impide ser “visible”.
 • 403 → ID existe pero la cuenta de servicio **no tiene permiso**. Si es Unidad compartida, añade la SA como **miembro de la Unidad**.
         """)
-
 
