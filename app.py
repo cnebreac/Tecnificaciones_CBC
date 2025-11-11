@@ -199,7 +199,11 @@ def hora_mas(h: str, minutos: int) -> str:
 # ====== GOOGLE SHEETS ======
 import gspread
 from google.oauth2.service_account import Credentials
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
+
 
 def _gc():
     info = dict(st.secrets["gcp_service_account"])
