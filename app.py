@@ -939,8 +939,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 if not equipo_val:
                     errores.append("**categoría/equipo** (obligatorio)")
             
-                if errores:
-                    st.error("Por favor, rellena: " + ", ".join(errores) + ".")
                 else:
                     # aquí sigues con lo que ya tenías:
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
