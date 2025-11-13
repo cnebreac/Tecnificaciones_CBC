@@ -927,12 +927,23 @@ Revisa los campos obligatorios o vuelve a intentarlo.
 
             if enviar:
                 errores = []
-                if not nombre: errores.append("**nombre del jugador**")
-                if not telefono: errores.append("**teléfono**")
-                if not equipo_val: errores.append("**categoría/equipo** (obligatorio)")
-
+            
+                if not nombre:
+                    errores.append("**nombre del jugador**")
+            
+                # VALIDACIÓN TELEFONO
+                if not telefono:
+                    errores.append("**teléfono**")
+                elif not telefono.isdigit():
+                    errores.append("**teléfono válido (solo números)**")
+            
+                if not equipo_val:
+                    errores.append("**categoría/equipo** (obligatorio)")
+            
                 if errores:
                     st.error("Por favor, rellena: " + ", ".join(errores) + ".")
+                    st.stop()
+
                 else:
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
                     if ya == "inscripciones":
