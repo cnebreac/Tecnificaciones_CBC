@@ -17,6 +17,9 @@ MAX_POR_CANASTA = 4
 CATEG_MINI = "Minibasket"
 CATEG_GRANDE = "Canasta grande"
 
+# Enlace a canal general de WhatsApp
+CANAL_GENERAL_URL = st.secrets.get("CANAL_GENERAL_URL", "")
+
 EQUIPOS_OPCIONES = [
     "— Selecciona —",
     "Benjamín 1ºaño 2017",
@@ -850,38 +853,45 @@ Revisa los campos obligatorios o vuelve a intentarlo.
     celebrate_key = f"celebrate_{fkey}_{hkey}"
 
     if st.session_state.get(ok_flag):
-        data = st.session_state.get(ok_data_key, {})
-        with placeholder.container():
-            if data.get("status") == "ok":
-                st.success("✅ Inscripción realizada correctamente")
-            else:
-                st.info("ℹ️ Te hemos añadido a la lista de espera")
+    data = st.session_state.get(ok_data_key, {})
+    with placeholder.container():
+        if data.get("status") == "ok":
+            st.success("✅ Inscripción realizada correctamente")
+        else:
+            st.info("ℹ️ Te hemos añadido a la lista de espera")
 
-            st.markdown("#### Resumen")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write(f"**Jugador:** {data.get('nombre','—')}")
-                st.write(f"**Canasta:** {data.get('canasta','—')}")
-                st.write(f"**Categoría/Equipo:** {data.get('equipo','—')}")
-            with col2:
-                st.write(f"**Tutor:** {data.get('tutor','—')}")
-                st.write(f"**Tel.:** {data.get('telefono','—')}")
-                st.write(f"**Email:** {data.get('email','—')}")
-
-            st.divider()
-            pdf = crear_justificante_pdf(data)
-            st.download_button(
-                label="⬇️ Descargar justificante (PDF)",
-                data=pdf,
-                file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}_{_parse_hora_cell(data.get('hora','')).replace(':','')}.pdf",
-                mime="application/pdf",
-                key=f"dl_btn_{fkey}_{hkey}"
+        # 🔗 Enlace al canal general de WhatsApp (si está configurado)
+        if CANAL_GENERAL_URL:
+            st.info(
+                "📢 Para recibir avisos y confirmaciones de las tecnificaciones, "
+                f"únete a nuestro canal de WhatsApp: [Pulsa aquí para unirte]({CANAL_GENERAL_URL})."
             )
 
-            if st.button("Hacer otra reserva", key=f"otra_{fkey}_{hkey}"):
-                st.session_state.pop(ok_flag, None)
-                st.session_state.pop(ok_data_key, None)
-                st.rerun()
+        st.markdown("#### Resumen")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Jugador:** {data.get('nombre','—')}")
+            st.write(f"**Canasta:** {data.get('canasta','—')}")
+            st.write(f"**Categoría/Equipo:** {data.get('equipo','—')}")
+        with col2:
+            st.write(f"**Tutor:** {data.get('tutor','—')}")
+            st.write(f"**Tel.:** {data.get('telefono','—')}")
+            st.write(f"**Email:** {data.get('email','—')}")
+
+        st.divider()
+        pdf = crear_justificante_pdf(data)
+        st.download_button(
+            label="⬇️ Descargar justificante (PDF)",
+            data=pdf,
+            file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}_{_parse_hora_cell(data.get('hora','')).replace(':','')}.pdf",
+            mime="application/pdf",
+            key=f"dl_btn_{fkey}_{hkey}"
+        )
+
+        if st.button("Hacer otra reserva", key=f"otra_{fkey}_{hkey}"):
+            st.session_state.pop(ok_flag, None)
+            st.session_state.pop(ok_data_key, None)
+            st.rerun()
 
         if st.session_state.pop(celebrate_key, False) and data.get("status") == "ok":
             st.toast("✅ Inscripción realizada correctamente", icon="✅")
