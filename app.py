@@ -898,7 +898,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             st.balloons()
 
     else:
-        with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=True):
+        with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
             st.write("📝 Información del jugador")
             nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
             canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
