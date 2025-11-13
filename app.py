@@ -908,7 +908,17 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             equipo_val = equipo_sel if (equipo_sel and equipo_sel not in ("— Selecciona —", "Otro")) else (equipo_otro or "").strip()
 
             padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}_{hkey}")
-            telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}_{hkey}")
+            telefono = st.text_input(
+                "Teléfono de contacto del tutor (solo números)",
+                key=f"telefono_{fkey}_{hkey}",
+                max_chars=9,
+                placeholder="Ej: 612345678"
+            )
+            
+            # Validación inmediata (solo números)
+            if telefono and not telefono.isdigit():
+                st.error("❌ El teléfono solo puede contener números (sin espacios ni guiones).")
+
             email = st.text_input("Email", key=f"email_{fkey}_{hkey}")
 
             st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
