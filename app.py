@@ -931,7 +931,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 if not nombre:
                     errores.append("**nombre del jugador**")
             
-                # VALIDACIÓN TELEFONO
                 if not telefono:
                     errores.append("**teléfono**")
                 elif not telefono.isdigit():
@@ -942,9 +941,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             
                 if errores:
                     st.error("Por favor, rellena: " + ", ".join(errores) + ".")
-                    st.stop()
-
                 else:
+                    # aquí sigues con lo que ya tenías:
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
@@ -990,4 +988,3 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             }
                             st.session_state[celebrate_key] = True
                             st.rerun()
-
