@@ -897,27 +897,40 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             st.toast("✅ Inscripción realizada correctamente", icon="✅")
             st.balloons()
 
-    else:
+        else:
         with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
             st.write("📝 Información del jugador")
             nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
-            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
 
+            # Canasta + placeholder de error
+            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
+            err_canasta = st.empty()
+
+            # Aviso informativo según canasta
+            if canasta == CATEG_MINI:
+                st.caption("ℹ️ Para **Minibasket** solo se permiten categorías **Benjamín** y **Alevín**.")
+            elif canasta == CATEG_GRANDE:
+                st.caption("ℹ️ Para **Canasta grande** solo se permiten categorías **Infantil**, **Cadete** y **Junior**.")
+
+            # Categoría / Equipo + placeholder de error
             equipo_sel = st.selectbox("Categoría / Equipo", EQUIPOS_OPCIONES, index=0, key=f"equipo_sel_{fkey}_{hkey}")
-            equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}_{hkey}") if equipo_sel == "Otro" else ""
+            equipo_otro = st.text_input(
+                "Especifica la categoría/equipo",
+                key=f"equipo_otro_{fkey}_{hkey}"
+            ) if equipo_sel == "Otro" else ""
             equipo_val = equipo_sel if (equipo_sel and equipo_sel not in ("— Selecciona —", "Otro")) else (equipo_otro or "").strip()
+            err_equipo = st.empty()
 
             padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}_{hkey}")
+
+            # Teléfono + placeholder de error
             telefono = st.text_input(
                 "Teléfono de contacto del tutor (solo números)",
                 key=f"telefono_{fkey}_{hkey}",
                 max_chars=9,
                 placeholder="Ej: 612345678"
             )
-            
-            # Validación inmediata (solo números)
-            if telefono and not telefono.isdigit():
-                st.error("❌ El teléfono solo puede contener números (sin espacios ni guiones).")
+            err_telefono = st.empty()
 
             email = st.text_input("Email", key=f"email_{fkey}_{hkey}")
 
@@ -926,32 +939,49 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             enviar = st.form_submit_button("Reservar")
 
             if enviar:
-                errores = []
-            
+                # Limpiamos errores anteriores
+                err_canasta.empty()
+                err_equipo.empty()
+                err_telefono.empty()
+
+                hay_error = False
+
+                # Nombre (si quieres también puedes hacer placeholder, de momento lo dejamos general)
                 if not nombre:
-                    errores.append("**nombre del jugador**")
-            
-                # Validación teléfono
+                    st.error("Por favor, rellena el **nombre del jugador**.")
+                    hay_error = True
+
+                # Teléfono
                 if not telefono:
-                    errores.append("**teléfono**")
+                    err_telefono.error("El teléfono es obligatorio.")
+                    hay_error = True
                 elif not telefono.isdigit():
-                    errores.append("**teléfono válido (solo números)**")
-            
+                    err_telefono.error("El teléfono solo puede contener números (sin espacios ni guiones).")
+                    hay_error = True
+
+                # Categoría / equipo
                 if not equipo_val:
-                    errores.append("**categoría/equipo** (obligatorio)")
+                    err_equipo.error("La categoría/equipo es obligatoria.")
+                    hay_error = True
                 else:
-                    # Coherencia canasta ↔ categoría (solo para opciones estándar, no forzamos si pone 'Otro')
+                    # Coherencia canasta ↔ categoría (solo si se ha elegido de la lista, no 'Otro')
                     ev = equipo_val.lower()
-            
+
                     if canasta == CATEG_MINI and equipo_sel != "Otro":
                         if not (ev.startswith("benjamín") or ev.startswith("benjamin") or ev.startswith("alevín") or ev.startswith("alevin")):
-                            errores.append("**para Minibasket solo se permiten categorías Benjamín o Alevín**")
-            
+                            err_canasta.error("Para Minibasket solo se permiten categorías Benjamín o Alevín.")
+                            hay_error = True
+
                     if canasta == CATEG_GRANDE and equipo_sel != "Otro":
                         if not (ev.startswith("infantil") or ev.startswith("cadete") or ev.startswith("junior")):
-                            errores.append("**para Canasta grande solo se permiten Infantil, Cadete o Junior**")
+                            err_canasta.error("Para Canasta grande solo se permiten Infantil, Cadete o Junior.")
+                            hay_error = True
+
+                if hay_error:
+                    # No seguimos, el usuario corrige los campos y mantiene todo lo escrito
+                    pass
                 else:
-                    # ⬇️ aquí sigue todo lo que ya tenías: comprobación de duplicados, plazas, append_row, etc.
+                    # Lógica original de reserva
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
