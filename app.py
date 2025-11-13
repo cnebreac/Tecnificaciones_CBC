@@ -931,6 +931,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 if not nombre:
                     errores.append("**nombre del jugador**")
             
+                # Validación teléfono
                 if not telefono:
                     errores.append("**teléfono**")
                 elif not telefono.isdigit():
@@ -938,9 +939,22 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             
                 if not equipo_val:
                     errores.append("**categoría/equipo** (obligatorio)")
-            
                 else:
-                    # aquí sigues con lo que ya tenías:
+                    # Coherencia canasta ↔ categoría (solo para opciones estándar, no forzamos si pone 'Otro')
+                    ev = equipo_val.lower()
+            
+                    if canasta == CATEG_MINI and equipo_sel != "Otro":
+                        if not (ev.startswith("benjamín") or ev.startswith("benjamin") or ev.startswith("alevín") or ev.startswith("alevin")):
+                            errores.append("**para Minibasket solo se permiten categorías Benjamín o Alevín**")
+            
+                    if canasta == CATEG_GRANDE and equipo_sel != "Otro":
+                        if not (ev.startswith("infantil") or ev.startswith("cadete") or ev.startswith("junior")):
+                            errores.append("**para Canasta grande solo se permiten Infantil, Cadete o Junior**")
+            
+                if errores:
+                    st.error("Por favor, rellena: " + ", ".join(errores) + ".")
+                else:
+                    # ⬇️ aquí sigue todo lo que ya tenías: comprobación de duplicados, plazas, append_row, etc.
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
