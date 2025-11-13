@@ -950,9 +950,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     if canasta == CATEG_GRANDE and equipo_sel != "Otro":
                         if not (ev.startswith("infantil") or ev.startswith("cadete") or ev.startswith("junior")):
                             errores.append("**para Canasta grande solo se permiten Infantil, Cadete o Junior**")
-            
-                if errores:
-                    st.error("Por favor, rellena: " + ", ".join(errores) + ".")
                 else:
                     # ⬇️ aquí sigue todo lo que ya tenías: comprobación de duplicados, plazas, append_row, etc.
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
