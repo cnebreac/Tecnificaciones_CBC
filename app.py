@@ -17,8 +17,10 @@ MAX_POR_CANASTA = 4
 CATEG_MINI = "Minibasket"
 CATEG_GRANDE = "Canasta grande"
 
-# Enlace a canal general de WhatsApp
+# Enlaces a canales de WhatsApp
 CANAL_GENERAL_URL = st.secrets.get("CANAL_GENERAL_URL", "")
+CANAL_MINI_URL = st.secrets.get("CANAL_MINI_URL", "")
+CANAL_GRANDE_URL = st.secrets.get("CANAL_GRANDE_URL", "")
 
 EQUIPOS_OPCIONES = [
     "— Selecciona —",
@@ -77,12 +79,15 @@ def _norm_hora(h: str) -> str:
     if not h:
         return "—"
     if re.fullmatch(r"\d{3,4}", h):
-        if len(h) == 3: h = "0" + h
+        if len(h) == 3:
+            h = "0" + h
         return f"{int(h[:2]):02d}:{int(h[2:]):02d}"
     m = re.match(r'^(\d{1,2})(?::?(\d{1,2}))?$', h)
     if m:
-        hh = int(m.group(1)); mm = int(m.group(2) or 0)
-        hh = max(0, min(23, hh)); mm = max(0, min(59, mm))
+        hh = int(m.group(1))
+        mm = int(m.group(2) or 0)
+        hh = max(0, min(23, hh))
+        mm = max(0, min(59, mm))
         return f"{hh:02d}:{mm:02d}"
     # '09:30:00'
     m2 = re.match(r'^(\d{1,2}):(\d{2}):\d{2}$', h)
@@ -110,11 +115,13 @@ def _parse_hora_cell(x) -> str:
     m = _HHMM_RE.search(s)
     if m:
         if m.group(1) and m.group(2):
-            hh = int(m.group(1)); mm = int(m.group(2))
+            hh = int(m.group(1))
+            mm = int(m.group(2))
             return f"{hh:02d}:{mm:02d}"
         if m.group(3):
             raw = m.group(3)
-            if len(raw) == 3: raw = "0" + raw
+            if len(raw) == 3:
+                raw = "0" + raw
             return f"{int(raw[:2]):02d}:{int(raw[2:]):02d}"
     return _norm_hora(s)
 
@@ -221,7 +228,8 @@ def _load_ws_df_cached(sheet_name: str) -> pd.DataFrame:
     # Normalizaciones por tipo de hoja
     if sheet_name == "sesiones":
         for c in ["fecha_iso","hora","estado"]:
-            if c not in df.columns: df[c] = ""
+            if c not in df.columns:
+                df[c] = ""
         df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
         df["hora"] = df["hora"].map(_parse_hora_cell)
         df["estado"] = df["estado"].replace("", "ABIERTA").str.upper()
@@ -277,13 +285,16 @@ def get_sesion_info_mem(fecha_iso: str, hora: str) -> dict:
     m = df[(df["fecha_iso"] == f) & (df["hora"] == h)]
     if not m.empty:
         r = m.iloc[0].to_dict()
-        return {"hora": _parse_hora_cell(r.get("hora","—")),
-                "estado": (str(r.get("estado","ABIERTA")) or "ABIERTA").upper()}
+        return {
+            "hora": _parse_hora_cell(r.get("hora","—")),
+            "estado": (str(r.get("estado","ABIERTA")) or "ABIERTA").upper()
+        }
     return {"hora": h, "estado": "ABIERTA"}
 
 def _inscripciones_mem(fecha_iso: str, hora: str) -> pd.DataFrame:
     dfs = load_all_data()
-    f = _norm_fecha_iso(fecha_iso); h = _parse_hora_cell(hora)
+    f = _norm_fecha_iso(fecha_iso)
+    h = _parse_hora_cell(hora)
     ins = dfs["ins"]
     if ins.empty:
         return ins
@@ -291,7 +302,8 @@ def _inscripciones_mem(fecha_iso: str, hora: str) -> pd.DataFrame:
 
 def _waitlist_mem(fecha_iso: str, hora: str) -> pd.DataFrame:
     dfs = load_all_data()
-    f = _norm_fecha_iso(fecha_iso); h = _parse_hora_cell(hora)
+    f = _norm_fecha_iso(fecha_iso)
+    h = _parse_hora_cell(hora)
     wl = dfs["wl"]
     if wl.empty:
         return wl
@@ -359,7 +371,7 @@ def upsert_sesion(fecha_iso: str, hora: str, estado: str = "ABIERTA"):
     try:
         ws = sh.worksheet(SESIONES_SHEET)
     except WorksheetNotFound:
-        ws = sh.add_worksheet(title=SESIONES_SHEET, rows=100, cols=3)
+        ws = sh.add_worksheet(title="sesiones", rows=100, cols=3)
         _retry_gspread(ws.update, "A1:C1", [["fecha_iso","hora","estado"]])
 
     rows = _retry_gspread(ws.get_all_values)
@@ -416,17 +428,23 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
     from reportlab.lib.units import cm
     from reportlab.lib import colors as _colors
 
-    buf = BytesIO(); c = canvas.Canvas(buf, pagesize=A4)
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
-    x = 2*cm; y = height - 2*cm
+    x = 2*cm
+    y = height - 2*cm
 
     status_ok = (datos.get("status") == "ok")
     titulo = "Justificante de inscripción" if status_ok else "Justificante - Lista de espera"
 
-    c.setFont("Helvetica-Bold", 16); c.drawString(x, y, titulo); y -= 0.8*cm
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(x, y, titulo)
+    y -= 0.8*cm
     c.setFont("Helvetica", 11)
-    c.drawString(x, y, f"Sesión: {datos.get('fecha_txt','—')}  ·  Hora: {datos.get('hora','—')}"); y -= 0.5*cm
-    c.drawString(x, y, f"Estado: {'CONFIRMADA' if status_ok else 'LISTA DE ESPERA'}"); y -= 0.8*cm
+    c.drawString(x, y, f"Sesión: {datos.get('fecha_txt','—')}  ·  Hora: {datos.get('hora','—')}")
+    y -= 0.5*cm
+    c.drawString(x, y, f"Estado: {'CONFIRMADA' if status_ok else 'LISTA DE ESPERA'}")
+    y -= 0.8*cm
 
     c.setFont("Helvetica", 10)
     for label, value in [
@@ -437,15 +455,53 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
         ("Teléfono", datos.get("telefono","—")),
         ("Email", datos.get("email","—")),
     ]:
-        c.drawString(x, y, f"{label}:"); c.setFont("Helvetica-Bold", 10)
-        c.drawString(x + 4.2*cm, y, value); c.setFont("Helvetica", 10)
+        c.drawString(x, y, f"{label}:")
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(x + 4.2*cm, y, value)
+        c.setFont("Helvetica", 10)
         y -= 0.6*cm
 
-    y -= 0.4*cm; c.setFont("Helvetica-Oblique", 9); c.setFillColor(_colors.grey)
+    y -= 0.4*cm
+    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(_colors.grey)
     c.drawString(x, y, "Conserve este justificante como comprobante de su reserva.")
     c.setFillColor(_colors.black)
 
-    c.showPage(); c.save(); buf.seek(0); return buf
+    # ------- Canales de WhatsApp en el PDF -------
+    y -= 1*cm
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x, y, "Canales de comunicación:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+
+    # Canal general
+    if CANAL_GENERAL_URL:
+        c.drawString(x, y, "General: ")
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(x + 3*cm, y, CANAL_GENERAL_URL)
+        y -= 0.5*cm
+        c.setFont("Helvetica", 10)
+
+    # Canal por categoría
+    canasta_pdf = (datos.get("canasta", "") or "").lower()
+
+    if "mini" in canasta_pdf and CANAL_MINI_URL:
+        c.drawString(x, y, "Minibasket: ")
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(x + 3*cm, y, CANAL_MINI_URL)
+        y -= 0.5*cm
+        c.setFont("Helvetica", 10)
+    elif "canasta" in canasta_pdf and CANAL_GRANDE_URL:
+        c.drawString(x, y, "Canasta grande: ")
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(x + 3*cm, y, CANAL_GRANDE_URL)
+        y -= 0.5*cm
+        c.setFont("Helvetica", 10)
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
 
 # ====== PDF: LISTADOS SESIÓN (INSCRIPCIONES + ESPERA) ======
 def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
@@ -458,7 +514,7 @@ def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
     hora = _parse_hora_cell(hora)
 
     lista = _inscripciones_mem(fecha_iso, hora).to_dict("records")
-    wl    = _waitlist_mem(fecha_iso, hora).to_dict("records")
+    wl = _waitlist_mem(fecha_iso, hora).to_dict("records")
 
     ins_mini = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_MINI)]
     ins_gran = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
@@ -466,86 +522,136 @@ def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
     info_s = get_sesion_info_mem(fecha_iso, hora)
     hora_lbl = info_s.get("hora","—")
 
-    buf = BytesIO(); c = canvas.Canvas(buf, pagesize=A4)
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
 
     fecha_txt = d.strftime("%A, %d %B %Y").capitalize()
     y = height - 2*cm
-    c.setFont("Helvetica-Bold", 16); c.drawString(2*cm, y, f"Tecnificación Baloncesto — {fecha_txt} {hora_lbl}")
-    y -= 0.8*cm; c.setFont("Helvetica", 11)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, f"Tecnificación Baloncesto — {fecha_txt} {hora_lbl}")
+    y -= 0.8*cm
+    c.setFont("Helvetica", 11)
     c.drawString(2*cm, y, f"Capacidad por categoría: {MAX_POR_CANASTA} | Mini: {len(ins_mini)} | Grande: {len(ins_gran)}")
     y -= 1.0*cm
 
     def fit_text(text, max_w, font="Helvetica", size=10):
-        if not text: return ""
+        if not text:
+            return ""
         from reportlab.pdfbase.pdfmetrics import stringWidth as sw
-        if sw(text, font, size) <= max_w: return text
-        ell = "…"; ell_w = sw(ell, font, size); t = text
-        while t and sw(t, font, size) + ell_w > max_w: t = t[:-1]
+        if sw(text, font, size) <= max_w:
+            return text
+        ell = "…"
+        ell_w = sw(ell, font, size)
+        t = text
+        while t and sw(t, font, size) + ell_w > max_w:
+            t = t[:-1]
         return t + ell
 
-    left   = 2.0*cm; right  = width - 2.0*cm
-    x_num  = left;   x_name = left + 0.9*cm; x_cat  = left + 11.0*cm; x_team = left + 14.0*cm
-    x_email = x_name; x_tel = x_cat; x_tutor = x_team
+    left = 2.0*cm
+    right = width - 2.0*cm
+    x_num = left
+    x_name = left + 0.9*cm
+    x_cat = left + 11.0*cm
+    x_team = left + 14.0*cm
+    x_email = x_name
+    x_tel = x_cat
+    x_tutor = x_team
 
-    w_name  = (x_cat  - x_name) - 0.2*cm
-    w_cat   = (x_team - x_cat)  - 0.2*cm
-    w_team  = (right  - x_team)
-    w_email = (x_cat  - x_email) - 0.3*cm
-    w_tel   = (x_team - x_tel)   - 0.3*cm
-    w_tutor = (right  - x_tutor)
+    w_name = (x_cat - x_name) - 0.2*cm
+    w_cat = (x_team - x_cat) - 0.2*cm
+    w_team = (right - x_team)
+    w_email = (x_cat - x_email) - 0.3*cm
+    w_tel = (x_team - x_tel) - 0.3*cm
+    w_tutor = (right - x_tutor)
 
-    line_spacing = 0.46*cm; separator_offset = 0.30*cm; post_separator_gap = 0.50*cm; min_margin = 3.0*cm
+    line_spacing = 0.46*cm
+    separator_offset = 0.30*cm
+    post_separator_gap = 0.50*cm
+    min_margin = 3.0*cm
 
     def redraw_headers(y_cur, titulo=""):
         c.setFont("Helvetica-Bold", 11)
-        if titulo: c.drawString(left, y_cur, titulo); y_cur -= 0.5*cm
+        if titulo:
+            c.drawString(left, y_cur, titulo)
+            y_cur -= 0.5*cm
         c.setFont("Helvetica", 10)
-        c.drawString(x_num,  y_cur, "#"); c.drawString(x_name, y_cur, "Nombre (jugador)")
-        c.drawString(x_cat,  y_cur, "Canasta"); c.drawString(x_team, y_cur, "Equipo")
-        y2 = y_cur - 0.35*cm; c.line(left, y2, right, y2); return y2 - 0.35*cm
+        c.drawString(x_num, y_cur, "#")
+        c.drawString(x_name, y_cur, "Nombre (jugador)")
+        c.drawString(x_cat, y_cur, "Canasta")
+        c.drawString(x_team, y_cur, "Equipo")
+        y2 = y_cur - 0.35*cm
+        c.line(left, y2, right, y2)
+        return y2 - 0.35*cm
 
     def pintar_lista(registros, titulo, y, start_idx=1):
         if not registros:
-            c.setFont("Helvetica", 10); c.drawString(left, y, f"— Sin inscripciones en {titulo.lower()} —")
+            c.setFont("Helvetica", 10)
+            c.drawString(left, y, f"— Sin inscripciones en {titulo.lower()} —")
             return y - 0.6*cm
         y = redraw_headers(y, f"{titulo}:")
         for i, r in enumerate(registros, start=start_idx):
             required = line_spacing + separator_offset + post_separator_gap
             if y - required < min_margin:
-                c.showPage(); y = height - 2*cm; y = redraw_headers(y, f"{titulo}:")
-            nombre = to_text(r.get("nombre","")); cat = to_text(r.get("canasta","")); team = to_text(r.get("equipo",""))
-            tutor  = to_text(r.get("tutor",""));   tel = to_text(r.get("telefono","")); email = to_text(r.get("email",""))
+                c.showPage()
+                y = height - 2*cm
+                y = redraw_headers(y, f"{titulo}:")
+            nombre = to_text(r.get("nombre",""))
+            cat = to_text(r.get("canasta",""))
+            team = to_text(r.get("equipo",""))
+            tutor = to_text(r.get("tutor",""))
+            tel = to_text(r.get("telefono",""))
+            email = to_text(r.get("email",""))
             c.setFont("Helvetica", 10)
-            c.drawString(x_num, y, to_text(i)); c.drawString(x_name, y, fit_text(nombre, w_name))
-            c.drawString(x_cat, y, fit_text(cat, w_cat)); c.drawString(x_team, y, fit_text(team, w_team))
-            y -= line_spacing; c.setFont("Helvetica", 9)
+            c.drawString(x_num, y, to_text(i))
+            c.drawString(x_name, y, fit_text(nombre, w_name))
+            c.drawString(x_cat, y, fit_text(cat, w_cat))
+            c.drawString(x_team, y, fit_text(team, w_team))
+            y -= line_spacing
+            c.setFont("Helvetica", 9)
             c.drawString(x_email, y, "Email: " + fit_text(email, w_email, size=9))
-            c.drawString(x_tel,   y, "Tel.: "  + fit_text(tel,   w_tel,   size=9))
+            c.drawString(x_tel, y, "Tel.: " + fit_text(tel, w_tel, size=9))
             c.drawString(x_tutor, y, "Tutor: " + fit_text(tutor, w_tutor))
-            y -= separator_offset; c.setLineWidth(0.3); c.setDash(1, 2); c.line(left, y, right, y)
-            c.setDash(); c.setLineWidth(1); y -= post_separator_gap
+            y -= separator_offset
+            c.setLineWidth(0.3)
+            c.setDash(1, 2)
+            c.line(left, y, right, y)
+            c.setDash()
+            c.setLineWidth(1)
+            y -= post_separator_gap
         return y
 
-    c.setFont("Helvetica-Bold", 12); c.drawString(left, y, "Inscripciones confirmadas:"); y -= 0.8*cm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left, y, "Inscripciones confirmadas:")
+    y -= 0.8*cm
     grande = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
-    mini   = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_MINI)]
+    mini = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_MINI)]
     if not lista:
-        c.setFont("Helvetica", 10); c.drawString(left, y, "— Sin inscripciones —"); y -= 0.6*cm
+        c.setFont("Helvetica", 10)
+        c.drawString(left, y, "— Sin inscripciones —")
+        y -= 0.6*cm
     else:
         y = pintar_lista(grande, "Canasta grande", y, start_idx=1)
-        y = pintar_lista(mini,   "Minibasket",    y, start_idx=len(grande)+1)
+        y = pintar_lista(mini, "Minibasket", y, start_idx=len(grande)+1)
 
-    y -= 1*cm; c.setFont("Helvetica-Bold", 12); c.drawString(left, y, "Lista de espera:"); y -= 0.8*cm
+    y -= 1*cm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left, y, "Lista de espera:")
+    y -= 0.8*cm
     grande_wl = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
-    mini_wl   = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_MINI)]
+    mini_wl = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_MINI)]
     if not wl:
-        c.setFont("Helvetica", 10); c.drawString(left, y, "— Vacía —"); y -= 0.6*cm
+        c.setFont("Helvetica", 10)
+        c.drawString(left, y, "— Vacía —")
+        y -= 0.6*cm
     else:
         y = pintar_lista(grande_wl, "Canasta grande", y, start_idx=1)
-        y = pintar_lista(mini_wl,   "Minibasket",    y, start_idx=len(grande_wl)+1)
+        y = pintar_lista(mini_wl, "Minibasket", y, start_idx=len(grande_wl)+1)
 
-    c.showPage(); c.save(); buf.seek(0); return buf
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
 
 # ====== ESTADO ======
 if "is_admin" not in st.session_state:
@@ -596,11 +702,15 @@ if show_admin_login:
                 except Exception:
                     pass
 
-                fechas_horas = list(dict.fromkeys([(r["fecha_iso"], _parse_hora_cell(r["hora"]))
-                                                   for _, r in df_ses_listables.iterrows()]))
+                fechas_horas = list(dict.fromkeys([
+                    (r["fecha_iso"], _parse_hora_cell(r["hora"]))
+                    for _, r in df_ses_listables.iterrows()
+                ]))
 
-                opciones = {(f,h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {h}  ·  {get_sesion_info_mem(f,h).get('estado','—')}"
-                            for (f,h) in fechas_horas}
+                opciones = {
+                    (f, h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {h}  ·  {get_sesion_info_mem(f,h).get('estado','—')}"
+                    for (f, h) in fechas_horas
+                }
 
                 f_h_admin = st.selectbox(
                     "Selecciona sesión (fecha + hora)",
@@ -610,9 +720,9 @@ if show_admin_login:
 
                 f_sel, h_sel = f_h_admin
                 ins_f = _inscripciones_mem(f_sel, h_sel).to_dict("records")
-                wl_f  = _waitlist_mem(f_sel, h_sel).to_dict("records")
+                wl_f = _waitlist_mem(f_sel, h_sel).to_dict("records")
                 df_show = pd.DataFrame(ins_f)
-                df_wl   = pd.DataFrame(wl_f)
+                df_wl = pd.DataFrame(wl_f)
 
                 st.write("**Inscripciones:**")
                 st.dataframe(df_show if not df_show.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
@@ -680,15 +790,18 @@ if show_admin_login:
                 with c1:
                     if st.button("⛔ Cerrar sesión (bloquear reservas)", use_container_width=True):
                         set_estado_sesion(fsel, hsel, "CERRADA")
-                        st.info(f"Sesión {fsel} {hsel} CERRADA."); st.rerun()
+                        st.info(f"Sesión {fsel} {hsel} CERRADA.")
+                        st.rerun()
                 with c2:
                     if st.button("✅ Abrir sesión", use_container_width=True):
                         set_estado_sesion(fsel, hsel, "ABIERTA")
-                        st.success(f"Sesión {fsel} {hsel} ABIERTA."); st.rerun()
+                        st.success(f"Sesión {fsel} {hsel} ABIERTA.")
+                        st.rerun()
                 with c3:
                     if st.button("🗑️ Eliminar sesión", use_container_width=True):
                         delete_sesion(fsel, hsel)
-                        st.warning(f"Sesión {fsel} {hsel} eliminada."); st.rerun()
+                        st.warning(f"Sesión {fsel} {hsel} eliminada.")
+                        st.rerun()
 
 else:
     # ====== SOLO USUARIO NORMAL ======
@@ -746,19 +859,24 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                 if not any_abierta:
                     color = "#fd7e14"
                 else:
-                    full_all = True; any_full = False
+                    full_all = True
+                    any_full = False
                     for s in sesiones:
                         mm = plazas_libres_mem(f, s["hora"], CATEG_MINI)
                         gg = plazas_libres_mem(f, s["hora"], CATEG_GRANDE)
-                        if mm > 0 or gg > 0: full_all = False
-                        if mm <= 0 or gg <= 0: any_full = True
+                        if mm > 0 or gg > 0:
+                            full_all = False
+                        if mm <= 0 or gg <= 0:
+                            any_full = True
                     color = "#dc3545" if full_all else "#ffc107" if any_full else "#28a745"
 
             if fecha_dt != today:
-                events.append({"title":"", "start": f, "end": f, "display":"background", "backgroundColor": color})
+                events.append({"title": "", "start": f, "end": f, "display": "background", "backgroundColor": color})
 
             for s in sorted(sesiones, key=lambda x: _parse_hora_cell(x["hora"])):
-                h_ini = _parse_hora_cell(s["hora"]); h_fin = hora_mas(h_ini, 60); label = f"{h_ini}–{h_fin}"
+                h_ini = _parse_hora_cell(s["hora"])
+                h_fin = hora_mas(h_ini, 60)
+                label = f"{h_ini}–{h_fin}"
                 events.append({"title": label, "start": f, "end": f, "display": "auto"})
 
         custom_css = """
@@ -776,7 +894,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 
         cal = calendar(
             events=events,
-            options={"initialView":"dayGridMonth","height":600,"locale":"es","firstDay":1},
+            options={"initialView": "dayGridMonth", "height": 600, "locale": "es", "firstDay": 1},
             custom_css=custom_css,
             key="cal",
         )
@@ -804,7 +922,8 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     # Selector de HORA para la fecha elegida
     sesiones_del_dia = [s for s in SESIONES_DIA.get(fecha_seleccionada, []) if s["estado"] == "ABIERTA"]
     if not sesiones_del_dia:
-        st.warning("Ese día no tiene sesiones abiertas."); st.stop()
+        st.warning("Ese día no tiene sesiones abiertas.")
+        st.stop()
 
     horas_ops = sorted({_parse_hora_cell(s["hora"]) for s in sesiones_del_dia})
     hora_seleccionada = st.selectbox("⏰ Elige la hora", options=horas_ops)
@@ -826,9 +945,12 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     libres_gran = plazas_libres_mem(fkey, hkey, CATEG_GRANDE)
 
     avisos = []
-    if libres_mini <= 0: avisos.append("**Minibasket** está **COMPLETA**.")
-    if libres_gran <= 0: avisos.append("**Canasta grande** está **COMPLETA**.")
-    if avisos: st.warning("⚠️ " + "  \n• ".join([""] + avisos))
+    if libres_mini <= 0:
+        avisos.append("**Minibasket** está **COMPLETA**.")
+    if libres_gran <= 0:
+        avisos.append("**Canasta grande** está **COMPLETA**.")
+    if avisos:
+        st.warning("⚠️ " + "  \n• ".join([""] + avisos))
 
     ambas_completas = (libres_mini <= 0 and libres_gran <= 0)
     if not ambas_completas:
@@ -861,11 +983,23 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             else:
                 st.info("ℹ️ Te hemos añadido a la lista de espera")
 
-            # 🔗 Enlace al canal general de WhatsApp (si está configurado)
+            # 🔗 Canales de WhatsApp (general + categoría)
             if CANAL_GENERAL_URL:
                 st.info(
-                    "📢 Para recibir avisos y confirmaciones de las tecnificaciones, "
-                    f"únete a nuestro canal de WhatsApp: [Pulsa aquí para unirte]({CANAL_GENERAL_URL})."
+                    "📢 Canal general de Tecnificaciones CBC\n"
+                    f"[Unirse al canal general]({CANAL_GENERAL_URL})"
+                )
+
+            canasta_data = (data.get("canasta", "") or "").lower()
+            if "mini" in canasta_data and CANAL_MINI_URL:
+                st.info(
+                    "🏀 **Canal exclusivo de MINIBASKET**\n"
+                    f"[Únete aquí para recibir avisos y la encuesta de esta categoría]({CANAL_MINI_URL})"
+                )
+            elif "canasta" in canasta_data and CANAL_GRANDE_URL:
+                st.info(
+                    "⛹️ **Canal exclusivo de CANASTA GRANDE**\n"
+                    f"[Únete aquí para recibir avisos y la encuesta de esta categoría]({CANAL_GRANDE_URL})"
                 )
 
             st.markdown("#### Resumen")
@@ -951,7 +1085,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
 
                 hay_error = False
 
-                # Nombre (lo dejamos con error general para que no se nos vaya de madre)
+                # Nombre
                 if not nombre:
                     st.error("Por favor, rellena el **nombre del jugador**.")
                     hay_error = True
