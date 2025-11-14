@@ -819,6 +819,13 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 - **Precio: 20€ (en efectivo el día de la sesión)**
 """)
 
+    # 🔔 Canal general en la portada
+    if CANAL_GENERAL_URL:
+        st.info(
+            "📢 **Canal general de Tecnificaciones CBC**\n\n"
+            f"[Pulsa aquí para unirte al canal general de WhatsApp]({CANAL_GENERAL_URL})"
+        )
+
     with st.expander("ℹ️ Cómo usar esta web", expanded=False):
         st.markdown("""
 1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
@@ -983,13 +990,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             else:
                 st.info("ℹ️ Te hemos añadido a la lista de espera")
 
-            # 🔗 Canales de WhatsApp (general + categoría)
-            if CANAL_GENERAL_URL:
-                st.info(
-                    "📢 Canal general de Tecnificaciones CBC\n"
-                    f"[Unirse al canal general]({CANAL_GENERAL_URL})"
-                )
-
+            # Solo canales por categoría aquí
             canasta_data = (data.get("canasta", "") or "").lower()
             if "mini" in canasta_data and CANAL_MINI_URL:
                 st.info(
