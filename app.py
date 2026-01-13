@@ -747,7 +747,19 @@ if show_admin_login:
                 st.write("**Lista de espera:**")
                 st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
                 st.divider()
-                
+
+                if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
+                    try:
+                        pdf = crear_pdf_sesion(f_sel, h_sel)
+                        st.download_button(
+                            label="Descargar PDF",
+                            data=pdf,
+                            file_name=f"sesion_{f_sel}_{_parse_hora_cell(h_sel)}.pdf",
+                            mime="application/pdf"
+                        )
+                    except ModuleNotFoundError:
+                        st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
+                        
                 st.subheader("🧾 Justificante individual (Admin)")
                 
                 # Construimos opciones de jugador desde inscripciones + waitlist
@@ -790,17 +802,7 @@ if show_admin_login:
                                 key=f"dl_admin_{f_sel}_{h_sel}_{nombre_arch}"
                             )
 
-                if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
-                    try:
-                        pdf = crear_pdf_sesion(f_sel, h_sel)
-                        st.download_button(
-                            label="Descargar PDF",
-                            data=pdf,
-                            file_name=f"sesion_{f_sel}_{_parse_hora_cell(h_sel)}.pdf",
-                            mime="application/pdf"
-                        )
-                    except ModuleNotFoundError:
-                        st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
+                
 
         st.divider()
         st.subheader("🗓️ Gestión de sesiones (fecha + hora)")
