@@ -746,7 +746,7 @@ if show_admin_login:
 
                 st.write("**Lista de espera:**")
                 st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
-                st.divider()
+                
 
                 if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
                     try:
@@ -759,7 +759,8 @@ if show_admin_login:
                         )
                     except ModuleNotFoundError:
                         st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
-                        
+              
+                st.divider()  
                 st.subheader("🧾 Justificante individual (Admin)")
                 
                 # Construimos opciones de jugador desde inscripciones + waitlist
