@@ -74,6 +74,23 @@ def to_text(v):
 def _norm_name(s: str) -> str:
     return " ".join((s or "").split()).casefold()
 
+def crear_justificante_admin_pdf(fecha_iso: str, hora: str, record: dict, status_forzado: str = "ok") -> BytesIO:
+    f_iso = _norm_fecha_iso(fecha_iso)
+    h = _parse_hora_cell(hora)
+    datos = {
+        "status": status_forzado,  # "ok" para confirmada, "wait" para espera si quisieras
+        "fecha_iso": f_iso,
+        "fecha_txt": pd.to_datetime(f_iso).strftime("%d/%m/%Y"),
+        "hora": h,
+        "nombre": to_text(record.get("nombre", "—")),
+        "canasta": to_text(record.get("canasta", "—")),
+        "equipo": to_text(record.get("equipo", "—")),
+        "tutor": to_text(record.get("tutor", "—")),
+        "telefono": to_text(record.get("telefono", "—")),
+        "email": to_text(record.get("email", "—")),
+    }
+    return crear_justificante_pdf(datos)
+
 def _norm_hora(h: str) -> str:
     h = (h or "").strip()
     if not h:
@@ -729,6 +746,49 @@ if show_admin_login:
 
                 st.write("**Lista de espera:**")
                 st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
+                st.divider()
+                
+                st.subheader("🧾 Justificante individual (Admin)")
+                
+                # Construimos opciones de jugador desde inscripciones + waitlist
+                opciones_j = []
+                for r in ins_f:
+                    opciones_j.append(("ins", r))
+                for r in wl_f:
+                    opciones_j.append(("wl", r))
+                
+                if not opciones_j:
+                    st.info("No hay jugadores en esta sesión.")
+                else:
+                    def _label(opt):
+                        origen, r = opt
+                        nombre = to_text(r.get("nombre","—"))
+                        can = to_text(r.get("canasta","—"))
+                        eq = to_text(r.get("equipo","—"))
+                        tag = "CONFIRMADA" if origen == "ins" else "ESPERA"
+                        return f"{nombre} · {can} · {eq} · {tag}"
+                
+                    sel = st.selectbox("Selecciona jugador", options=opciones_j, format_func=_label)
+                
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        forzar_ok = st.checkbox("Forzar como CONFIRMADA (aunque esté en espera)", value=True)
+                
+                    with c2:
+                        # Si no fuerzas, respeta el origen
+                        status_pdf = "ok" if (forzar_ok or sel[0] == "ins") else "wait"
+                
+                        if st.button("Generar justificante individual"):
+                            origen, rec = sel
+                            pdf = crear_justificante_admin_pdf(f_sel, h_sel, rec, status_forzado=status_pdf)
+                            nombre_arch = _norm_name(to_text(rec.get("nombre","jugador"))).replace(" ", "_")
+                            st.download_button(
+                                "Descargar justificante (PDF)",
+                                data=pdf,
+                                file_name=f"justificante_{f_sel}_{_parse_hora_cell(h_sel).replace(':','')}_{nombre_arch}.pdf",
+                                mime="application/pdf",
+                                key=f"dl_admin_{f_sel}_{h_sel}_{nombre_arch}"
+                            )
 
                 if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
                     try:
