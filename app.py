@@ -93,7 +93,7 @@ def crear_justificante_admin_pdf(fecha_iso: str, hora: str, record: dict, status
     
 def texto_plazas(libres: int) -> tuple[str, str]:
     if libres <= 0:
-        return "error", "🔴 **Completa** → entrarás en *lista de espera*"
+        return "warning", "🔴 **Completa** → entrarás en *lista de espera*"
     if libres == 1:
         return "warning", "🟡 **Última plaza**"
     return "info", "🟢 **Plazas disponibles**"
