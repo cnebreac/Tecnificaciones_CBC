@@ -90,6 +90,13 @@ def crear_justificante_admin_pdf(fecha_iso: str, hora: str, record: dict, status
         "email": to_text(record.get("email", "—")),
     }
     return crear_justificante_pdf(datos)
+    
+def texto_plazas(libres: int) -> tuple[str, str]:
+    if libres <= 0:
+        return "error", "🔴 **Completa** → entrarás en *lista de espera*"
+    if libres == 1:
+        return "warning", "🟡 **Última plaza**"
+    return "info", "🟢 **Plazas disponibles**"
 
 def _norm_hora(h: str) -> str:
     h = (h or "").strip()
@@ -1014,22 +1021,11 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
     libres_mini = plazas_libres_mem(fkey, hkey, CATEG_MINI)
     libres_gran = plazas_libres_mem(fkey, hkey, CATEG_GRANDE)
 
-    avisos = []
-    if libres_mini <= 0:
-        avisos.append("**Minibasket** está **COMPLETA**.")
-    if libres_gran <= 0:
-        avisos.append("**Canasta grande** está **COMPLETA**.")
-    if avisos:
-        st.warning("⚠️ " + "  \n• ".join([""] + avisos))
+    lvl_m, txt_m = texto_plazas(libres_mini)
+    lvl_g, txt_g = texto_plazas(libres_gran)
 
-    ambas_completas = (libres_mini <= 0 and libres_gran <= 0)
-    if not ambas_completas:
-        if libres_mini > 0 and libres_gran <= 0:
-            st.info(f"Plazas disponibles · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}")
-        elif libres_gran > 0 and libres_mini <= 0:
-            st.info(f"Plazas disponibles · {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
-        else:
-            st.info(f"Plazas · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
+    getattr(st, lvl_m)(f"**{CATEG_MINI}:** {txt_m}")
+    getattr(st, lvl_g)(f"**{CATEG_GRANDE}:** {txt_g}")
 
     with st.expander("ℹ️ **IMPORTANTE para confirmar la reserva**", expanded=False):
         st.markdown("""
