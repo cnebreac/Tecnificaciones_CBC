@@ -1195,7 +1195,16 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
 
             # Canasta + placeholder de error
-            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
+            opciones_canasta = []
+
+            if get_estado_grupo_mem(fkey, hkey, CATEG_MINI) == "ABIERTA":
+                opciones_canasta.append(CATEG_MINI)
+            
+            if get_estado_grupo_mem(fkey, hkey, CATEG_GRANDE) == "ABIERTA":
+                opciones_canasta.append(CATEG_GRANDE)
+            
+            canasta = st.radio("Canasta", opciones_canasta)
+
             err_canasta = st.empty()
 
             # Aviso informativo según canasta
