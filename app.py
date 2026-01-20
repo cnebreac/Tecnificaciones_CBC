@@ -92,12 +92,26 @@ def crear_justificante_admin_pdf(fecha_iso: str, hora: str, record: dict, status
     }
     return crear_justificante_pdf(datos)
     
-def texto_plazas(libres: int) -> tuple[str, str]:
+def texto_estado_grupo(fecha_iso: str, hora: str, canasta: str) -> tuple[str, str]:
+    """
+    Devuelve (nivel_streamlit, texto) según el estado real del grupo:
+    - CERRADA -> cerrada por admin (no lista de espera)
+    - ABIERTA sin plazas -> completa (lista de espera)
+    - ABIERTA con plazas -> plazas disponibles
+    """
+    estado = get_estado_grupo_mem(fecha_iso, hora, canasta)
+
+    if estado == "CERRADA":
+        return "error", "⛔ **CERRADA** · no admite reservas"
+
+    libres = plazas_libres_mem(fecha_iso, hora, canasta)
+
     if libres <= 0:
-        return "warning", "🔴 **Completa** → entrarás en *lista de espera*"
+        return "warning", "🔴 **COMPLETA** → entrarás en *lista de espera*"
     if libres == 1:
         return "warning", "🟡 **Última plaza**"
     return "info", "🟢 **Plazas disponibles**"
+
 
 def _norm_hora(h: str) -> str:
     h = (h or "").strip()
@@ -1103,12 +1117,9 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
         st.warning("Esta sesión está **CERRADA**: no admite más reservas en ninguna categoría.")
         st.stop()
 
-    libres_mini = plazas_libres_mem(fkey, hkey, CATEG_MINI)
-    libres_gran = plazas_libres_mem(fkey, hkey, CATEG_GRANDE)
-
-    lvl_m, txt_m = texto_plazas(libres_mini)
-    lvl_g, txt_g = texto_plazas(libres_gran)
-
+    lvl_m, txt_m = texto_estado_grupo(fkey, hkey, CATEG_MINI)
+    lvl_g, txt_g = texto_estado_grupo(fkey, hkey, CATEG_GRANDE)
+    
     getattr(st, lvl_m)(f"**{CATEG_MINI}:** {txt_m}")
     getattr(st, lvl_g)(f"**{CATEG_GRANDE}:** {txt_g}")
 
