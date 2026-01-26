@@ -1034,7 +1034,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 
         cal = calendar(
             events=events,
-            options={"initialView": "dayGridMonth", "height": 600, "locale": "es", "firstDay": 0},
+            options={"initialView": "dayGridMonth", "height": 600, "locale": "es", "firstDay": 1},
             custom_css=custom_css,
             key="cal",
         )
