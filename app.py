@@ -718,7 +718,7 @@ if show_admin_login:
         
         # Aviso si está vacío, pero NO bloquea el resto del panel
         if df_ses_all.empty:
-            st.info("Aún no hay sesiones creadas. Puedes crear la primera abajo en 'Gestión de sesiones'.")
+            st.info("Aún no hay sesiones creadas.")
         
         # ===== Tabla de inscripciones / espera por sesión (solo si hay sesiones) =====
         if not df_ses_all.empty:
