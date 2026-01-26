@@ -713,15 +713,17 @@ if show_admin_login:
                 load_all_data.clear()
                 st.success("Caché limpiada.")
 
-        # ===== Tabla de inscripciones / espera por sesión (solo sesiones listables) =====
         dfs = load_all_data()
         df_ses_all = dfs["sesiones"].copy()
-
+        
+        # Aviso si está vacío, pero NO bloquea el resto del panel
         if df_ses_all.empty:
-            st.info("Aún no hay sesiones creadas.")
-        else:
+            st.info("Aún no hay sesiones creadas. Puedes crear la primera abajo en 'Gestión de sesiones'.")
+        
+        # ===== Tabla de inscripciones / espera por sesión (solo si hay sesiones) =====
+        if not df_ses_all.empty:
             df_ses_listables = df_ses_all[df_ses_all["estado"].isin(["ABIERTA", "CERRADA"])].copy()
-
+        
             if df_ses_listables.empty:
                 st.info("No hay sesiones en estado ABIERTA o CERRADA.")
             else:
@@ -730,35 +732,35 @@ if show_admin_login:
                     df_ses_listables = df_ses_listables.sort_values(["__f","hora"]).drop(columns="__f")
                 except Exception:
                     pass
-
+        
                 fechas_horas = list(dict.fromkeys([
                     (r["fecha_iso"], _parse_hora_cell(r["hora"]))
                     for _, r in df_ses_listables.iterrows()
                 ]))
-
+        
                 opciones = {
                     (f, h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {h}  ·  GLOBAL: {get_sesion_info_mem(f,h).get('estado','—')} | MINI: {get_sesion_info_mem(f,h).get('estado_mini','—')} | GRANDE: {get_sesion_info_mem(f,h).get('estado_grande','—')}"
                     for (f, h) in fechas_horas
                 }
-
+        
                 f_h_admin = st.selectbox(
                     "Selecciona sesión (fecha + hora)",
                     options=fechas_horas,
                     format_func=lambda t: opciones.get(t, f"{t[0]} · {t[1]}")
                 )
-
+        
                 f_sel, h_sel = f_h_admin
                 ins_f = _inscripciones_mem(f_sel, h_sel).to_dict("records")
                 wl_f = _waitlist_mem(f_sel, h_sel).to_dict("records")
                 df_show = pd.DataFrame(ins_f)
                 df_wl = pd.DataFrame(wl_f)
-
+        
                 st.write("**Inscripciones:**")
                 st.dataframe(df_show if not df_show.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
-
+        
                 st.write("**Lista de espera:**")
                 st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
-
+        
                 if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
                     try:
                         pdf = crear_pdf_sesion(f_sel, h_sel)
@@ -770,206 +772,168 @@ if show_admin_login:
                         )
                     except ModuleNotFoundError:
                         st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
-
+        
                 st.divider()
                 st.subheader("🧾 Justificante individual (Admin)")
-
-                # Construimos opciones de jugador desde inscripciones + waitlist
-                opciones_j = []
-                for r in ins_f:
-                    opciones_j.append(("ins", r))
-                for r in wl_f:
-                    opciones_j.append(("wl", r))
-
-                if not opciones_j:
-                    st.info("No hay jugadores en esta sesión.")
-                else:
-                    def _label(opt):
-                        origen, r = opt
-                        nombre = to_text(r.get("nombre","—"))
-                        can = to_text(r.get("canasta","—"))
-                        eq = to_text(r.get("equipo","—"))
-                        tag = "CONFIRMADA" if origen == "ins" else "ESPERA"
-                        return f"{nombre} · {can} · {eq} · {tag}"
-
-                    sel = st.selectbox("Selecciona jugador", options=opciones_j, format_func=_label)
-
-                    c1, c2 = st.columns([1, 1])
-                    with c1:
-                        forzar_ok = st.checkbox("Forzar como CONFIRMADA (aunque esté en espera)", value=True)
-
-                    with c2:
-                        status_pdf = "ok" if (forzar_ok or sel[0] == "ins") else "wait"
-
-                        if st.button("Generar justificante individual"):
-                            origen, rec = sel
-                            pdf = crear_justificante_admin_pdf(f_sel, h_sel, rec, status_forzado=status_pdf)
-                            nombre_arch = _norm_name(to_text(rec.get("nombre","jugador"))).replace(" ", "_")
-                            st.download_button(
-                                "Descargar justificante (PDF)",
-                                data=pdf,
-                                file_name=f"justificante_{f_sel}_{_parse_hora_cell(h_sel).replace(':','')}_{nombre_arch}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_admin_{f_sel}_{h_sel}_{nombre_arch}"
-                            )
-
-                st.divider()
-                st.subheader("🗓️ Gestión de sesiones")
+                # (tu bloque de justificante individual aquí, tal cual)
         
-                # --- 1) AÑADIR SESIÓN (GLOBAL ABIERTA) ---
-                with st.form("form_add_sesion_admin", clear_on_submit=True):
-                    c1, c2 = st.columns([1, 1])
-                    with c1:
-                        fecha_nueva = st.date_input("Fecha", value=dt.date.today())
-                    with c2:
-                        hora_nueva = st.text_input("Hora (HH:MM)", value="09:30")
+        # ==========================
+        # 🗓️ GESTIÓN DE SESIONES (SIEMPRE VISIBLE)
+        # ==========================
+        st.divider()
+        st.subheader("🗓️ Gestión de sesiones")
         
-                    submitted = st.form_submit_button("➕ Añadir sesión (GLOBAL ABIERTA)")
-                    if submitted:
-                        f_iso = _norm_fecha_iso(fecha_nueva)
+        # --- 1) AÑADIR SESIÓN (GLOBAL ABIERTA) ---
+        with st.form("form_add_sesion_admin", clear_on_submit=True):
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                fecha_nueva = st.date_input("Fecha", value=dt.date.today())
+            with c2:
+                hora_nueva = st.text_input("Hora (HH:MM)", value="09:30")
         
-                        # Crea/actualiza sesión: global abierta + ambos grupos abiertos
-                        upsert_sesion(
-                            f_iso,
-                            hora_nueva,
-                            estado="ABIERTA",
-                            estado_mini="ABIERTA",
-                            estado_grande="ABIERTA"
-                        )
+            submitted = st.form_submit_button("➕ Añadir sesión (GLOBAL ABIERTA)")
+            if submitted:
+                f_iso = _norm_fecha_iso(fecha_nueva)
+                upsert_sesion(
+                    f_iso,
+                    hora_nueva,
+                    estado="ABIERTA",
+                    estado_mini="ABIERTA",
+                    estado_grande="ABIERTA"
+                )
+                st.success(f"Sesión {f_iso} {_parse_hora_cell(hora_nueva)} añadida/actualizada (GLOBAL ABIERTA).")
+                st.rerun()
         
-                        st.success(f"Sesión {f_iso} {_parse_hora_cell(hora_nueva)} añadida/actualizada (GLOBAL ABIERTA).")
-                        st.rerun()
+        # --- Tabla + eliminar sesión (solo si hay sesiones) ---
+        df_ses = load_all_data()["sesiones"].copy()
+        if df_ses.empty:
+            st.info("No hay sesiones creadas todavía.")
+        else:
+            try:
+                df_ses["__f"] = pd.to_datetime(df_ses["fecha_iso"])
+                df_ses["hora"] = df_ses["hora"].apply(_parse_hora_cell)
+                df_ses = df_ses.sort_values(["__f","hora"]).drop(columns="__f")
+            except Exception:
+                pass
         
-                # --- Tabla de sesiones (solo para ver) ---
-                df_ses = load_all_data()["sesiones"].copy()
-                if df_ses.empty:
-                    st.info("No hay sesiones creadas todavía.")
-                else:
-                    try:
-                        df_ses["__f"] = pd.to_datetime(df_ses["fecha_iso"])
-                        df_ses["hora"] = df_ses["hora"].apply(_parse_hora_cell)
-                        df_ses = df_ses.sort_values(["__f","hora"]).drop(columns="__f")
-                    except Exception:
-                        pass
+            st.dataframe(df_ses, use_container_width=True)
         
-                    st.dataframe(df_ses, use_container_width=True)
+            st.markdown("#### 🗑️ Eliminar sesión")
         
-                    # --- 2) ELIMINAR SESIÓN (GLOBAL) ---
-                    st.markdown("#### 🗑️ Eliminar sesión")
+            opciones_ses = [(r["fecha_iso"], _parse_hora_cell(r["hora"])) for _, r in df_ses.iterrows()]
+            opciones_ses = list(dict.fromkeys(opciones_ses))
         
-                    opciones_ses = [(r["fecha_iso"], _parse_hora_cell(r["hora"])) for _, r in df_ses.iterrows()]
-                    opciones_ses = list(dict.fromkeys(opciones_ses))
+            fdel, hdel = st.selectbox(
+                "Selecciona sesión a eliminar",
+                options=opciones_ses,
+                format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_parse_hora_cell(t[1])}",
+                key="sel_delete_session"
+            )
         
-                    fdel, hdel = st.selectbox(
-                        "Selecciona sesión a eliminar",
-                        options=opciones_ses,
-                        format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_parse_hora_cell(t[1])}",
-                        key="sel_delete_session"
-                    )
+            if st.button("🗑️ Eliminar sesión (GLOBAL)", use_container_width=True):
+                delete_sesion(fdel, hdel)
+                st.warning(f"Sesión {fdel} {hdel} eliminada.")
+                st.rerun()
         
-                    if st.button("🗑️ Eliminar sesión (GLOBAL)", use_container_width=True):
-                        delete_sesion(fdel, hdel)
-                        st.warning(f"Sesión {fdel} {hdel} eliminada.")
-                        st.rerun()
-
-                # ==========================
-                # ACCIÓN RÁPIDA (modificar)
-                # ==========================
-                st.divider()
-                st.subheader("⚡ Acción rápida")
-                
-                df_ses2 = load_all_data()["sesiones"].copy()
-                if df_ses2.empty:
-                    st.info("No hay sesiones para modificar.")
-                else:
-                    try:
-                        df_ses2["__f"] = pd.to_datetime(df_ses2["fecha_iso"])
-                        df_ses2["hora"] = df_ses2["hora"].apply(_parse_hora_cell)
-                        df_ses2 = df_ses2.sort_values(["__f","hora"]).drop(columns="__f")
-                    except Exception:
-                        pass
-                
-                    opciones = [(r["fecha_iso"], _parse_hora_cell(r["hora"])) for _, r in df_ses2.iterrows()]
-                    opciones = list(dict.fromkeys(opciones))
-                
-                    fsel, hsel = st.selectbox(
-                        "Selecciona sesión",
-                        options=opciones,
-                        format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_parse_hora_cell(t[1])}",
-                        key="sel_action_session"
-                    )
-                
-                    # Estados actuales (para mostrar acciones solo si aplican)
-                    info = get_sesion_info_mem(fsel, hsel)
-                    estado_global = (info.get("estado","ABIERTA") or "ABIERTA").upper()
-                    estado_mini = (info.get("estado_mini","ABIERTA") or "ABIERTA").upper()
-                    estado_grande = (info.get("estado_grande","ABIERTA") or "ABIERTA").upper()
-                
-                    # Opciones base (siempre disponibles)
-                    acciones = [
-                        "— Selecciona —",
-                        "Cerrar solo Minibasket",
-                        "Cerrar solo Canasta grande",
-                        "Cerrar sesión completa (GLOBAL)",
-                    ]
-                
-                    # Opciones de reabrir SOLO si hace falta
-                    if estado_global == "CERRADA":
-                        acciones.append("Reabrir sesión completa (GLOBAL)")
-                    if estado_mini == "CERRADA":
-                        acciones.append("Reabrir solo Minibasket")
-                    if estado_grande == "CERRADA":
-                        acciones.append("Reabrir solo Canasta grande")
-                
-                    accion = st.selectbox(
-                        "Elige acción",
-                        options=acciones,
-                        index=0,
-                        key="sel_action"
-                    )
-                
-                    colA, colB = st.columns([1, 2])
-                    with colA:
-                        aplicar = st.button("✅ Aplicar", use_container_width=True)
-                    with colB:
-                        st.caption("Cerrar GLOBAL bloquea ambos grupos. Reabrir un grupo pone GLOBAL ABIERTA para que tenga efecto.")
-                
-                    if aplicar:
-                        if accion == "— Selecciona —":
-                            st.warning("Selecciona una acción primero.")
-                
-                        elif accion == "Cerrar solo Minibasket":
-                            set_estado_grupo(fsel, hsel, CATEG_MINI, "CERRADA")
-                            st.warning("Minibasket CERRADA.")
-                            st.rerun()
-                
-                        elif accion == "Cerrar solo Canasta grande":
-                            set_estado_grupo(fsel, hsel, CATEG_GRANDE, "CERRADA")
-                            st.warning("Canasta grande CERRADA.")
-                            st.rerun()
-                
-                        elif accion == "Cerrar sesión completa (GLOBAL)":
-                            set_estado_sesion(fsel, hsel, "CERRADA")
-                            st.warning("Sesión cerrada (GLOBAL).")
-                            st.rerun()
-                
-                        elif accion == "Reabrir sesión completa (GLOBAL)":
-                            set_estado_sesion(fsel, hsel, "ABIERTA")
-                            st.success("Sesión ABIERTA (GLOBAL).")
-                            st.rerun()
-                
-                        elif accion == "Reabrir solo Minibasket":
-                            set_estado_sesion(fsel, hsel, "ABIERTA")  # por si global estaba cerrada
-                            set_estado_grupo(fsel, hsel, CATEG_MINI, "ABIERTA")
-                            st.success("Minibasket ABIERTA.")
-                            st.rerun()
-                
-                        elif accion == "Reabrir solo Canasta grande":
-                            set_estado_sesion(fsel, hsel, "ABIERTA")
-                            set_estado_grupo(fsel, hsel, CATEG_GRANDE, "ABIERTA")
-                            st.success("Canasta grande ABIERTA.")
-                            st.rerun()
-                
+        # ==========================
+        # ⚡ ACCIÓN RÁPIDA (solo si hay sesiones)
+        # ==========================
+        st.divider()
+        st.subheader("⚡ Acción rápida")
+        
+        df_ses2 = load_all_data()["sesiones"].copy()
+        if df_ses2.empty:
+            st.info("No hay sesiones para modificar.")
+        else:
+            # (tu bloque de acción rápida tal cual)
+            try:
+                df_ses2["__f"] = pd.to_datetime(df_ses2["fecha_iso"])
+                df_ses2["hora"] = df_ses2["hora"].apply(_parse_hora_cell)
+                df_ses2 = df_ses2.sort_values(["__f","hora"]).drop(columns="__f")
+            except Exception:
+                pass
+        
+            opciones = [(r["fecha_iso"], _parse_hora_cell(r["hora"])) for _, r in df_ses2.iterrows()]
+            opciones = list(dict.fromkeys(opciones))
+        
+            fsel, hsel = st.selectbox(
+                "Selecciona sesión",
+                options=opciones,
+                format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_parse_hora_cell(t[1])}",
+                key="sel_action_session"
+            )
+        
+            # Estados actuales (para mostrar acciones solo si aplican)
+            info = get_sesion_info_mem(fsel, hsel)
+            estado_global = (info.get("estado","ABIERTA") or "ABIERTA").upper()
+            estado_mini = (info.get("estado_mini","ABIERTA") or "ABIERTA").upper()
+            estado_grande = (info.get("estado_grande","ABIERTA") or "ABIERTA").upper()
+        
+            # Opciones base (siempre disponibles)
+            acciones = [
+                "— Selecciona —",
+                "Cerrar solo Minibasket",
+                "Cerrar solo Canasta grande",
+                "Cerrar sesión completa (GLOBAL)",
+            ]
+        
+            # Opciones de reabrir SOLO si hace falta
+            if estado_global == "CERRADA":
+                acciones.append("Reabrir sesión completa (GLOBAL)")
+            if estado_mini == "CERRADA":
+                acciones.append("Reabrir solo Minibasket")
+            if estado_grande == "CERRADA":
+                acciones.append("Reabrir solo Canasta grande")
+        
+            accion = st.selectbox(
+                "Elige acción",
+                options=acciones,
+                index=0,
+                key="sel_action"
+            )
+        
+            colA, colB = st.columns([1, 2])
+            with colA:
+                aplicar = st.button("✅ Aplicar", use_container_width=True)
+            with colB:
+                st.caption("Cerrar GLOBAL bloquea ambos grupos. Reabrir un grupo pone GLOBAL ABIERTA para que tenga efecto.")
+        
+            if aplicar:
+                if accion == "— Selecciona —":
+                    st.warning("Selecciona una acción primero.")
+        
+                elif accion == "Cerrar solo Minibasket":
+                    set_estado_grupo(fsel, hsel, CATEG_MINI, "CERRADA")
+                    st.warning("Minibasket CERRADA.")
+                    st.rerun()
+        
+                elif accion == "Cerrar solo Canasta grande":
+                    set_estado_grupo(fsel, hsel, CATEG_GRANDE, "CERRADA")
+                    st.warning("Canasta grande CERRADA.")
+                    st.rerun()
+        
+                elif accion == "Cerrar sesión completa (GLOBAL)":
+                    set_estado_sesion(fsel, hsel, "CERRADA")
+                    st.warning("Sesión cerrada (GLOBAL).")
+                    st.rerun()
+        
+                elif accion == "Reabrir sesión completa (GLOBAL)":
+                    set_estado_sesion(fsel, hsel, "ABIERTA")
+                    st.success("Sesión ABIERTA (GLOBAL).")
+                    st.rerun()
+        
+                elif accion == "Reabrir solo Minibasket":
+                    set_estado_sesion(fsel, hsel, "ABIERTA")  # por si global estaba cerrada
+                    set_estado_grupo(fsel, hsel, CATEG_MINI, "ABIERTA")
+                    st.success("Minibasket ABIERTA.")
+                    st.rerun()
+        
+                elif accion == "Reabrir solo Canasta grande":
+                    set_estado_sesion(fsel, hsel, "ABIERTA")
+                    set_estado_grupo(fsel, hsel, CATEG_GRANDE, "ABIERTA")
+                    st.success("Canasta grande ABIERTA.")
+                    st.rerun()
+        
 
 # ===== app.py (5/5) =====
 else:
