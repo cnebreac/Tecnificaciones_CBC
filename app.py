@@ -1342,12 +1342,44 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         # ==========================================================
         with tab_auto:
             st.markdown("### 🔐 Autorrellenar")
+            # ==========================
+            # ✅ Verificación antes de mostrar el contenido (solo si hay cookie)
+            # ==========================
+            codigo_cookie = (cookies.get("family_code") or "").strip()
+            gate_key = f"use_cookie_gate_{fkey}_{hkey}"
+            
+            if codigo_cookie and (gate_key not in st.session_state):
+                st.info(f"🔐 He detectado un código guardado en este dispositivo: `{codigo_cookie}`")
+                st.write("¿Quieres usar el código guardado?")
+            
+                c_yes, c_no = st.columns(2)
+                with c_yes:
+                    if st.button("✅ Sí", key=f"gate_yes_{fkey}_{hkey}", use_container_width=True):
+                        st.session_state[gate_key] = "yes"
+                        st.rerun()
+                with c_no:
+                    if st.button("❌ No", key=f"gate_no_{fkey}_{hkey}", use_container_width=True):
+                        st.session_state[gate_key] = "no"
+                        # opcional: limpiamos lo cargado para empezar "limpio"
+                        st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
+                        st.session_state.pop(f"autofilled_{fkey}_{hkey}", None)
+                        st.rerun()
+            
+                st.stop()  # ⛔ no mostrar el resto de la pestaña aún
+            
+            # Si hay cookie y dijeron "no", NO precargamos el input con cookie (manual)
+            if codigo_cookie and st.session_state.get(gate_key) == "no":
+                codigo_cookie_effective = ""
+            else:
+                codigo_cookie_effective = codigo_cookie
+
             codigo_familia = st.text_input(
                 "Código de familia",
-                value=codigo_cookie,
+                value=codigo_cookie_effective,
                 key=f"family_code_{fkey}_{hkey}",
                 placeholder="Ej: CBC-7F3KQ9P2..."
             )
+
         
             # ✅ define esto ANTES de usarlo
             hijos_cargados = st.session_state.get(f"hijos_{fkey}_{hkey}", [])
@@ -1438,17 +1470,19 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.success("Código eliminado de este dispositivo.")
                         st.rerun()
                     st.markdown("</div>", unsafe_allow_html=True)
-            # Autocarga si ya hay cookie (sin pulsar botón)
-            if codigo_cookie and not st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
-                fam = get_familia_por_codigo(codigo_cookie)
+            
+
+            # Autocarga SOLO si se aceptó usar el código guardado
+            if codigo_cookie_effective and not st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
+                fam = get_familia_por_codigo(codigo_cookie_effective)
                 if fam:
-                    hijos = get_hijos_por_codigo(codigo_cookie)
+                    hijos = get_hijos_por_codigo(codigo_cookie_effective)
                     st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
                     st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
                     st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                     st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                     st.session_state[f"autofilled_{fkey}_{hkey}"] = True
-        
+            
 
             # ==========================
             # ⚡ RESERVA RÁPIDA
