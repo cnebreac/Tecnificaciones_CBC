@@ -1377,7 +1377,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         
                         st.success("Datos cargados.")
                         st.rerun()
-            nnn
+                        
             with col_forget:
                 if codigo_cookie:
                     st.markdown(
