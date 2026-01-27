@@ -1388,10 +1388,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                     st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
 
-                    if recordar_dispositivo:
-                        cookies["family_code"] = fam["codigo"]
-                        cookies.save()
-
                     st.success("Datos cargados.")
                     st.rerun()
 
@@ -1453,8 +1449,16 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     if ya == "waitlist":
                         st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
                         st.stop()
-
+                    
                     equipo_val = equipo_h or "—"
+                    # ✅ Si el usuario marcó "Recordar", guardamos el código SOLO ahora (al reservar)
+                    # Preferimos el código del input si está, si no el cookie actual, y si no el del padre cargado
+                    cod_para_recordar = (codigo_familia or "").strip() or codigo_cookie
+                    cod_para_recordar = cod_para_recordar.upper().strip()
+                    
+                    if recordar_dispositivo and cod_para_recordar:
+                        cookies["family_code"] = cod_para_recordar
+                        cookies.save()
 
                     row = [
                         dt.datetime.now().isoformat(timespec="seconds"),
