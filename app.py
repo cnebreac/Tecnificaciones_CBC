@@ -710,10 +710,10 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
     if family_code:
         c.setFillColor(_colors.black)
         c.setFont("Helvetica-Bold", 10)
-        c.drawString(x, y, f"Código de familia (para autorrelleno): {family_code}")
+        c.drawString(x, y, f"Código de familia: {family_code}")
 
     # ------- Canales de WhatsApp en el PDF -------
-    y -= 1*cm
+    y -= 4*cm
     c.setFont("Helvetica-Bold", 11)
     c.drawString(x, y, "Canales de comunicación:")
     y -= 0.6*cm
