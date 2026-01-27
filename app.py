@@ -566,16 +566,11 @@ def _retry_gspread(call, *args, **kwargs):
 def append_row(sheet_name: str, values: list):
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
-
     headers = ws.row_values(1)
-
-    # si no hay headers o están incompletos -> actualiza
-    if not headers or len(headers) < len(_EXPECTED_HEADERS):
-        _retry_gspread(ws.update, "A1:J1", [_EXPECTED_HEADERS])
-
+    if not headers:
+        _retry_gspread(ws.update, "A1:I1", [_EXPECTED_HEADERS])
     _retry_gspread(ws.append_row, values, value_input_option="USER_ENTERED")
-    load_all_data.clear()
-
+    load_all_data.clear()  # invalidar cache para ver el cambio al instante
 
 SESIONES_SHEET = "sesiones"
 
