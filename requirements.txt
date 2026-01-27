@@ -5,3 +5,4 @@ google-auth>=2.22,<3
 reportlab>=4.0,<5
 streamlit-calendar==1.0.1
 google-api-python-client
+streamlit-cookies-manager
