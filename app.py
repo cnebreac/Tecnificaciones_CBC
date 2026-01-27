@@ -1585,8 +1585,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         }
                         st.session_state[celebrate_key] = True
                         st.rerun()
-            else:
-                st.info("Si tienes un código válido, usa 'Usar este código' para ver tus jugadores guardados.")
+            
 
         # ==========================================================
         # TAB 2: FORMULARIO MANUAL
