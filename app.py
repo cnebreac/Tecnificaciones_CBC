@@ -26,10 +26,6 @@ CANAL_GENERAL_URL = st.secrets.get("CANAL_GENERAL_URL", "")
 CANAL_MINI_URL = st.secrets.get("CANAL_MINI_URL", "")
 CANAL_GRANDE_URL = st.secrets.get("CANAL_GRANDE_URL", "")
 
-AUTO_TUTOR_KEY = f"auto_padre_{fkey}_{hkey}"
-AUTO_TEL_KEY   = f"auto_telefono_{fkey}_{hkey}"
-AUTO_EMAIL_KEY = f"auto_email_{fkey}_{hkey}"
-
 EQUIPOS_OPCIONES = [
     "— Selecciona —",
     "Benjamín 1ºaño 2017",
@@ -1375,9 +1371,9 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 fam = get_familia_por_codigo(codigo_cookie)
                 if fam:
                     hijos = get_hijos_por_codigo(codigo_cookie)
-                    st.session_state[AUTO_TUTOR_KEY] = fam.get("tutor", "")
-                    st.session_state[AUTO_TEL_KEY]   = fam.get("telefono", "")
-                    st.session_state[AUTO_EMAIL_KEY] = fam.get("email", "")
+                    st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                    st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                    st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                     st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                     st.session_state[f"autofilled_{fkey}_{hkey}"] = True
 
@@ -1387,9 +1383,9 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     st.error("Código no válido (o no encontrado).")
                 else:
                     hijos = get_hijos_por_codigo(fam["codigo"])
-                    st.session_state[AUTO_TUTOR_KEY] = fam.get("tutor", "")
-                    st.session_state[AUTO_TEL_KEY]   = fam.get("telefono", "")
-                    st.session_state[AUTO_EMAIL_KEY] = fam.get("email", "")
+                    st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                    st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                    st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                     st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
 
                     st.success("Datos cargados.")
