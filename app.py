@@ -1118,6 +1118,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 3. Rellena los **datos del jugador y del tutor** y pulsa **Reservar**.  
 4. Si la categoría está llena, entrarás **automáticamente en lista de espera***.  
 5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
+6. Si has guardado tus datos, recibirás un **código de familia** que podrás usar en futuras reservas para **autorrellenar** el formulario y reservar más rápido.
 
 \\* Si alguien cancela o hay ajustes, podrás pasar a **plaza confirmada**.
         """)
