@@ -1342,16 +1342,17 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         # ==========================================================
         with tab_auto:
             st.markdown("### 🔐 Autorrellenar")
-            # ==========================
-            # ✅ Verificación antes de mostrar el contenido (solo si hay cookie)
-            # ==========================
+        
             codigo_cookie = (cookies.get("family_code") or "").strip()
             gate_key = f"use_cookie_gate_{fkey}_{hkey}"
-            
-            if codigo_cookie and (gate_key not in st.session_state):
-                st.info(f"🔐 He detectado un código guardado en este dispositivo: `{codigo_cookie}`")
+        
+            # ¿Hay cookie y aún no han contestado?
+            gate_pending = bool(codigo_cookie) and (gate_key not in st.session_state)
+        
+            if gate_pending:
+                st.info(f"Se ha detectado un código guardado en este dispositivo: `{codigo_cookie}`")
                 st.write("¿Quieres usar el código guardado?")
-            
+        
                 c_yes, c_no = st.columns(2)
                 with c_yes:
                     if st.button("✅ Sí", key=f"gate_yes_{fkey}_{hkey}", use_container_width=True):
@@ -1360,27 +1361,31 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 with c_no:
                     if st.button("❌ No", key=f"gate_no_{fkey}_{hkey}", use_container_width=True):
                         st.session_state[gate_key] = "no"
-                        # opcional: limpiamos lo cargado para empezar "limpio"
+                        # limpiar datos cargados, por si acaso
                         st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
                         st.session_state.pop(f"autofilled_{fkey}_{hkey}", None)
                         st.rerun()
-            
-                st.stop()  # ⛔ no mostrar el resto de la pestaña aún
-            
-            # Si hay cookie y dijeron "no", NO precargamos el input con cookie (manual)
-            if codigo_cookie and st.session_state.get(gate_key) == "no":
-                codigo_cookie_effective = ""
-            else:
-                codigo_cookie_effective = codigo_cookie
-
-            codigo_familia = st.text_input(
-                "Código de familia",
-                value=codigo_cookie_effective,
-                key=f"family_code_{fkey}_{hkey}",
-                placeholder="Ej: CBC-7F3KQ9P2..."
-            )
-
         
+                # ✅ IMPORTANTE: NO st.stop() aquí
+                # simplemente NO mostramos el resto del contenido de tab_auto
+            else:
+                # Si dijeron "no", no precargamos con cookie
+                if codigo_cookie and st.session_state.get(gate_key) == "no":
+                    codigo_cookie_effective = ""
+                else:
+                    codigo_cookie_effective = codigo_cookie
+        
+                codigo_familia = st.text_input(
+                    "Código de familia",
+                    value=codigo_cookie_effective,
+                    key=f"family_code_{fkey}_{hkey}",
+                    placeholder="Ej: CBC-7F3KQ9P2..."
+                )
+        
+                # ... A PARTIR DE AQUÍ VA TODO TU CONTENIDO NORMAL DE tab_auto ...
+                # (botones, olvidar, autocarga, reserva rápida, etc.)
+
+
             # ✅ define esto ANTES de usarlo
             hijos_cargados = st.session_state.get(f"hijos_{fkey}_{hkey}", [])
             fam_valida_o_hijos_cargados = bool(hijos_cargados)  # lo que realmente quieres controlar
