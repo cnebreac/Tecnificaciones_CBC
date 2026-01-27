@@ -1348,33 +1348,31 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             codigo_cookie = (cookies.get("family_code") or "").strip()
             gate_key = f"use_cookie_gate_{fkey}_{hkey}"
         
-            # Gate activo solo si hay cookie y aún no han respondido
-            gate_pending = bool(codigo_cookie) and (gate_key not in st.session_state)
+            # ✅ En vez de gate_pending + rerun, usamos "choice"
+            choice = st.session_state.get(gate_key)  # None / "yes" / "no"
         
-            if gate_pending:
-                st.info(f"Se ha detectado un código guardado en este dispositivo: `{codigo_cookie}`")
+            # Gate: solo si hay cookie y aún no han respondido
+            if codigo_cookie and choice is None:
+                st.write(f"Se ha detectado un código guardado en este dispositivo: `{codigo_cookie}`")
                 st.write("¿Quieres usar el código guardado?")
         
                 c_yes, c_no = st.columns(2)
                 with c_yes:
                     if st.button("✅ Sí", key=f"gate_yes_{fkey}_{hkey}", use_container_width=True):
                         st.session_state[gate_key] = "yes"
-                        st.rerun()
+        
                 with c_no:
                     if st.button("❌ No", key=f"gate_no_{fkey}_{hkey}", use_container_width=True):
                         st.session_state[gate_key] = "no"
                         # limpiamos cosas de autorellenar por si acaso
                         st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
                         st.session_state.pop(f"autofilled_{fkey}_{hkey}", None)
-
-                        st.rerun()
         
-                # ✅ MUY IMPORTANTE: no st.stop() aquí.
-                # Simplemente no mostramos el resto del contenido de tab_auto todavía.
+                # ✅ Importante: no st.stop() y no st.rerun()
         
             else:
                 # Si dijeron "no", ignoramos la cookie como valor por defecto
-                codigo_cookie_effective = "" if (codigo_cookie and st.session_state.get(gate_key) == "no") else codigo_cookie
+                codigo_cookie_effective = "" if (codigo_cookie and choice == "no") else codigo_cookie
         
                 codigo_familia = st.text_input(
                     "Código de familia",
@@ -1399,8 +1397,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         recordar_dispositivo = False
         
                     # ✅ Botón "Usar este código":
-                    # - Si ya hay cookie y el input es igual, NO lo mostramos (ya se está usando)
-                    # - Solo aparece si el input está vacío (y no hay cookie) o si el usuario escribe uno DISTINTO
                     input_norm  = (codigo_familia or "").strip().upper()
                     cookie_norm = (codigo_cookie_effective or "").strip().upper()
                     mostrar_usar = (not cookie_norm) or (input_norm and input_norm != cookie_norm)
@@ -1419,7 +1415,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                                 st.session_state[f"autofilled_{fkey}_{hkey}"] = True
         
                                 st.success("Datos cargados.")
-                                st.rerun()
+                                # ✅ Quitamos rerun para evitar que “suba” al inicio
+                                # Streamlit ya rerenderiza tras el click del botón
                     else:
                         st.caption("✅ Ya estás usando el código guardado en este dispositivo.")
         
@@ -1458,7 +1455,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             st.session_state.pop(f"autofilled_{fkey}_{hkey}", None)
                             st.session_state.pop(gate_key, None)  # reset del gate
                             st.success("Código eliminado de este dispositivo.")
-                            st.rerun()
+                            # ✅ Quitamos rerun para evitar salto arriba
                         st.markdown("</div>", unsafe_allow_html=True)
         
                 # Autocarga si hay cookie efectiva y aún no se cargó
@@ -1471,16 +1468,15 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                         st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                         st.session_state[f"autofilled_{fkey}_{hkey}"] = True
-                        # 👋 Mensaje simple de bienvenida si hay datos cargados
-                        tutor_name = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip()
+        
+                # ✅ Mensaje simple (texto normal, sin cuadro azul) si ya hay datos cargados
+                tutor_name = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip()
+                if st.session_state.get(f"autofilled_{fkey}_{hkey}", False) and tutor_name:
+                    st.markdown(
+                        f"Hola, {tutor_name}\n\n"
+                        "Hemos cargado tus datos guardados para facilitar la reserva."
+                    )
 
-                        if tutor_name:
-                            st.markdown(
-                                f"👋 **Hola, {tutor_name}**  \n"
-                                "Hemos cargado tus datos guardados para facilitar la reserva."
-                            )
-                                
-                    
             # ==========================
             # ⚡ RESERVA RÁPIDA
             # ==========================
@@ -1656,9 +1652,10 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 guardar_familia = st.checkbox(
                     "Guardar estos datos para próximas reservas (Genera código de familia)",
                     value=True,
-                    key=k_savefam
+                    key=k_savefam,
+                    help="Genera un código (CBC-XXXX...) para autorrellenar tus datos y los de tus hijos en futuras reservas."
                 )
-        
+                                        
                 enviar = st.form_submit_button("Reservar")
         
                 if enviar:
