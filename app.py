@@ -1415,6 +1415,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                                 st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                                 st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                                 st.session_state[f"autofilled_{fkey}_{hkey}"] = True
+
+                                st.info("Si tienes un código válido, usa 'Usar este código' para ver tus jugadores guardados.")
         
                                 st.success("Datos cargados.")
                                 st.rerun()
