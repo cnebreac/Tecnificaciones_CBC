@@ -1366,7 +1366,25 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                 st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                 st.session_state[f"autofilled_{fkey}_{hkey}"] = True
+        
+        if st.button("Usar este código", key=f"autofill_btn_{fkey}_{hkey}"):
+            fam = get_familia_por_codigo(codigo_familia)
+            if not fam:
+                st.error("Código no válido (o no encontrado).")
+            else:
+                hijos = get_hijos_por_codigo(fam["codigo"])
+                st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
 
+                if recordar_dispositivo:
+                    cookies["family_code"] = fam["codigo"]
+                    cookies.save()
+
+                st.success("Datos cargados.")
+                st.rerun()
+                
         # ==========================
         # ⚡ RESERVA RÁPIDA (NO QUITA EL FORMULARIO)
         # ==========================
