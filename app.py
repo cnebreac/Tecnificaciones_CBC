@@ -26,6 +26,10 @@ CANAL_GENERAL_URL = st.secrets.get("CANAL_GENERAL_URL", "")
 CANAL_MINI_URL = st.secrets.get("CANAL_MINI_URL", "")
 CANAL_GRANDE_URL = st.secrets.get("CANAL_GRANDE_URL", "")
 
+AUTO_TUTOR_KEY = f"auto_padre_{fkey}_{hkey}"
+AUTO_TEL_KEY   = f"auto_telefono_{fkey}_{hkey}"
+AUTO_EMAIL_KEY = f"auto_email_{fkey}_{hkey}"
+
 EQUIPOS_OPCIONES = [
     "— Selecciona —",
     "Benjamín 1ºaño 2017",
@@ -272,7 +276,7 @@ Excepción: {type(e).__name__}""")
         st.stop()
 
 # ---- Cabeceras esperadas en inscripciones / waitlist ----
-_EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
+_EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","categoria","tutor","telefono","email"]
 
 # ====== CARGA CACHEADA (TTL=60s) ======
 @st.cache_data(ttl=60, show_spinner=False)
@@ -562,11 +566,16 @@ def _retry_gspread(call, *args, **kwargs):
 def append_row(sheet_name: str, values: list):
     sh = _open_sheet()
     ws = sh.worksheet(sheet_name)
+
     headers = ws.row_values(1)
-    if not headers:
-        _retry_gspread(ws.update, "A1:I1", [_EXPECTED_HEADERS])
+
+    # si no hay headers o están incompletos -> actualiza
+    if not headers or len(headers) < len(_EXPECTED_HEADERS):
+        _retry_gspread(ws.update, "A1:J1", [_EXPECTED_HEADERS])
+
     _retry_gspread(ws.append_row, values, value_input_option="USER_ENTERED")
-    load_all_data.clear()  # invalidar cache para ver el cambio al instante
+    load_all_data.clear()
+
 
 SESIONES_SHEET = "sesiones"
 
@@ -1371,9 +1380,9 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 fam = get_familia_por_codigo(codigo_cookie)
                 if fam:
                     hijos = get_hijos_por_codigo(codigo_cookie)
-                    st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
-                    st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
-                    st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                    st.session_state[AUTO_TUTOR_KEY] = fam.get("tutor", "")
+                    st.session_state[AUTO_TEL_KEY]   = fam.get("telefono", "")
+                    st.session_state[AUTO_EMAIL_KEY] = fam.get("email", "")
                     st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                     st.session_state[f"autofilled_{fkey}_{hkey}"] = True
 
@@ -1383,9 +1392,9 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     st.error("Código no válido (o no encontrado).")
                 else:
                     hijos = get_hijos_por_codigo(fam["codigo"])
-                    st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
-                    st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
-                    st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                    st.session_state[AUTO_TUTOR_KEY] = fam.get("tutor", "")
+                    st.session_state[AUTO_TEL_KEY]   = fam.get("telefono", "")
+                    st.session_state[AUTO_EMAIL_KEY] = fam.get("email", "")
                     st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
 
                     st.success("Datos cargados.")
@@ -1411,9 +1420,9 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     equipo_h = to_text(sel_h.get("equipo", "")).strip()
                     canasta_h = to_text(sel_h.get("canasta", "")).strip()
 
-                    tutor_h = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip() or "—"
-                    telefono_h = to_text(st.session_state.get(f"telefono_{fkey}_{hkey}", "")).strip()
-                    email_h = to_text(st.session_state.get(f"email_{fkey}_{hkey}", "")).strip() or "—"
+                    tutor_h = to_text(st.session_state.get(AUTO_TUTOR_KEY, "")).strip() or "—"
+                    telefono_h = to_text(st.session_state.get(AUTO_TEL_KEY, "")).strip()
+                    email_h = to_text(st.session_state.get(AUTO_EMAIL_KEY, "")).strip() or "—"
 
                     if not nombre_h:
                         st.error("No se pudo leer el nombre del jugador guardado.")
@@ -1459,12 +1468,22 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     if recordar_dispositivo and cod_para_recordar:
                         cookies["family_code"] = cod_para_recordar
                         cookies.save()
-
+                    
+                    categoria_val = ""
+                    ev = (equipo_val or "").strip()
+                    if ev:
+                        categoria_val = ev.split()[0]
+                    
                     row = [
                         dt.datetime.now().isoformat(timespec="seconds"),
                         fkey, hora_sesion, nombre_h, canasta_final,
-                        equipo_val, tutor_h, telefono_h, email_h
+                        equipo_val,
+                        (categoria_val or ""),
+                        tutor_h,
+                        telefono_h,
+                        email_h
                     ]
+
 
                     libres_cat = plazas_libres_mem(fkey, hkey, canasta_final)
                     if libres_cat <= 0:
@@ -1602,11 +1621,21 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         else:
                             libres_cat = plazas_libres_mem(fkey, hkey, canasta)
 
+                            categoria_val = ""
+                            ev = (equipo_val or "").strip()
+                            if ev:
+                                categoria_val = ev.split()[0]  # "Benjamín", "Alevín", "Infantil"...
+
                             row = [
                                 dt.datetime.now().isoformat(timespec="seconds"),
                                 fkey, hora_sesion, nombre, canasta,
-                                (equipo_val or ""), (padre or ""), telefono, (email or "")
+                                (equipo_val or ""),
+                                (categoria_val or ""),
+                                (padre or ""),
+                                telefono,
+                                (email or "")
                             ]
+
 
                             family_code = ""
                             if guardar_familia:
