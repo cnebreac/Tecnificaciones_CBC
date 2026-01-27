@@ -1495,7 +1495,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     key=f"selh_{fkey}_{hkey}"
                 )
 
-                if st.button("⚡ Reservar con este jugador", key=f"reserveh_{fkey}_{hkey}", use_container_width=True):
+                if st.button("Reservar con este jugador", key=f"reserveh_{fkey}_{hkey}", use_container_width=True):
                     nombre_h = to_text(sel_h.get("jugador", "")).strip()
                     equipo_h = to_text(sel_h.get("equipo", "")).strip()
                     canasta_h = to_text(sel_h.get("canasta", "")).strip()
