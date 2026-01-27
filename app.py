@@ -1470,6 +1470,15 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                         st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                         st.session_state[f"autofilled_{fkey}_{hkey}"] = True
+                        # 👋 Mensaje simple de bienvenida si hay datos cargados
+                        tutor_name = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip()
+                        
+                        if tutor_name:
+                            st.info(
+                                f"👋 **Hola, {tutor_name}**  \n"
+                                "Hemos cargado tus datos guardados para facilitar la reserva."
+                            )
+
         
                     
 
