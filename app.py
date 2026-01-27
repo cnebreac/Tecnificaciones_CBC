@@ -1352,7 +1352,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             gate_pending = bool(codigo_cookie) and (gate_key not in st.session_state)
         
             if gate_pending:
-                st.info(f"🔐 He detectado un código guardado en este dispositivo: `{codigo_cookie}`")
+                st.info(f"Se ha detectado un código guardado en este dispositivo: `{codigo_cookie}`")
                 st.write("¿Quieres usar el código guardado?")
         
                 c_yes, c_no = st.columns(2)
