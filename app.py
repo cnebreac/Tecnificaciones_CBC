@@ -1325,18 +1325,19 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             st.balloons()
 
     # ------------------------------------------------------------------
-    # ✅ 3) PESTAÑAS (si NO hay ok_flag)  <<<<<< CAMBIO MÍNIMO AQUÍ
+    # ------------------------------------------------------------------
+    # ✅ 3) PESTAÑAS (si NO hay ok_flag)
     # ------------------------------------------------------------------
     else:
+        # ✅ IMPORTANTE: esto debe estar FUERA de las tabs (lo usan ambas pestañas)
+        codigo_cookie = (cookies.get("family_code") or "").strip()
+
         tab_auto, tab_manual = st.tabs(["🔐 Autorrellenar con código", "✍️ Rellenar manualmente"])
 
         # ==========================================================
         # TAB 1: AUTORELLENAR + RESERVA RÁPIDA
         # ==========================================================
         with tab_auto:
-            # ---- Autorrelleno seguro por código ----
-            codigo_cookie = (cookies.get("family_code") or "").strip()
-
             st.markdown("### 🔐 Autorrellenar")
             codigo_familia = st.text_input(
                 "Código de familia",
@@ -1405,12 +1406,10 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 )
 
                 if st.button("⚡ Reservar con este jugador", key=f"reserveh_{fkey}_{hkey}", use_container_width=True):
-                    # --- Datos del jugador guardado ---
                     nombre_h = to_text(sel_h.get("jugador", "")).strip()
                     equipo_h = to_text(sel_h.get("equipo", "")).strip()
                     canasta_h = to_text(sel_h.get("canasta", "")).strip()
 
-                    # --- Datos tutor ---
                     tutor_h = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip() or "—"
                     telefono_h = to_text(st.session_state.get(f"telefono_{fkey}_{hkey}", "")).strip()
                     email_h = to_text(st.session_state.get(f"email_{fkey}_{hkey}", "")).strip() or "—"
@@ -1423,7 +1422,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.error("Falta un teléfono válido guardado para esta familia. Pulsa 'Autorrellenar con código' y revisa los datos.")
                         st.stop()
 
-                    # Normaliza canasta guardada
                     canasta_h_low = canasta_h.lower()
                     if "mini" in canasta_h_low:
                         canasta_final = CATEG_MINI
@@ -1433,19 +1431,16 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.error("El jugador guardado no tiene canasta válida (Minibasket / Canasta grande).")
                         st.stop()
 
-                    # Sesión global cerrada
                     info_tmp = get_sesion_info_mem(fkey, hkey)
                     estado_global = (info_tmp.get("estado", "ABIERTA") or "ABIERTA").upper()
                     if estado_global == "CERRADA":
                         st.error("Esta sesión está CERRADA (GLOBAL).")
                         st.stop()
 
-                    # Canasta cerrada por admin
                     if get_estado_grupo_mem(fkey, hkey, canasta_final) == "CERRADA":
                         st.error(f"{canasta_final} está CERRADA para esta sesión. Reserva desde el formulario eligiendo la otra canasta.")
                         st.stop()
 
-                    # Evitar duplicados
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre_h)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
@@ -1458,14 +1453,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
 
                     row = [
                         dt.datetime.now().isoformat(timespec="seconds"),
-                        fkey,
-                        hora_sesion,
-                        nombre_h,
-                        canasta_final,
-                        equipo_val,
-                        tutor_h,
-                        telefono_h,
-                        email_h
+                        fkey, hora_sesion, nombre_h, canasta_final,
+                        equipo_val, tutor_h, telefono_h, email_h
                     ]
 
                     libres_cat = plazas_libres_mem(fkey, hkey, canasta_final)
@@ -1502,7 +1491,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         }
                         st.session_state[celebrate_key] = True
                         st.rerun()
-
             else:
                 st.info("Si tienes un código válido, usa 'Usar este código' para ver tus jugadores guardados.")
 
@@ -1510,7 +1498,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         # TAB 2: FORMULARIO MANUAL
         # ==========================================================
         with tab_manual:
-            with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
+            # ✅ CLAVE: NO uses placeholder.form aquí
+            with st.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
                 st.write("📝 Información del jugador")
                 nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
 
@@ -1610,10 +1599,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                                 (equipo_val or ""), (padre or ""), telefono, (email or "")
                             ]
 
-                            # ---- Guardar familia/hijo y cookie (si procede) ----
                             family_code = ""
                             if guardar_familia:
-                                # si vienen de cookie, úsala; si no, nada
                                 cod_in = codigo_cookie.strip() if codigo_cookie else ""
                                 family_code = upsert_familia_y_hijo(
                                     cod_in if cod_in else None,
