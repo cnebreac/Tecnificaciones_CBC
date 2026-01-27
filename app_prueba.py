@@ -470,11 +470,11 @@ if show_admin_login:
                 except ModuleNotFoundError:
                     st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
 
+# ===== app.py (PANEL USUARIO ACTUALIZADO) =====
 else:
     # ====== SOLO USUARIO NORMAL ======
     st.title(APP_TITLE)
 
-    # >>> Bienvenida y funcionamiento
     st.markdown("""
 **Bienvenid@ a las Tecnificaciones CBC**  
 Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendizaje de cada jugador/a.
@@ -483,11 +483,17 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 - Cada sesión se divide en **dos grupos**: **Minibasket** y **Canasta Grande**.  
 - **Máximo 4 jugadores por grupo** (hasta 8 por sesión).  
 - Trabajo **individualizado** en: manejo de balón, finalizaciones, tiro, lectura de juego, toma de decisiones, fundamentos defensivos y coordinación.
+- Sesiones de **1 hora**. 
+- **Precio: 20€ (en efectivo el día de la sesión)**
+""")
 
-**Política de Reorganización de Grupos: Si en una categoría hay menos de 3 jugadores inscritos y en la otra hay lista de espera, se cancelará la sesión con menor asistencia para abrir una adicional en la categoría con más demanda.**
-    """)
+    # 🔔 Canal general en la portada
+    if CANAL_GENERAL_URL:
+        st.info(
+            "📢 **Canal general de Tecnificaciones CBC**\n\n"
+            f"[Pulsa aquí para unirte al canal general de WhatsApp]({CANAL_GENERAL_URL})"
+        )
 
-    # >>> Instrucciones de uso (plegadas)
     with st.expander("ℹ️ Cómo usar esta web", expanded=False):
         st.markdown("""
 1. Revisa el **calendario** y elige una fecha con plazas disponibles.  
@@ -496,61 +502,57 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
 4. Si la categoría está llena, entrarás **automáticamente en lista de espera***.  
 5. Tras una reserva correcta, podrás **descargar tu justificante en PDF**.
 
-\\* Si en algún momento alguien **cancela** o hay **ajustes de última hora**, pasarás a tener **plaza confirmada** en esa sesión. Se te informará a través del **correo electrónico facilitado**.
+\\* Si alguien cancela o hay ajustes, podrás pasar a **plaza confirmada**.
         """)
 
     st.divider()
 
+    # Refrescar sesiones (agrupadas por día) – en memoria / cacheado
+    SESIONES_DIA = get_sesiones_por_dia_cached()
     today = dt.date.today()
 
-    # Solo sesiones futuras (>= hoy)
-    fechas_disponibles = sorted(
-        [f for f in SESIONES.keys() if dt.date.fromisoformat(f) >= today]
-    )
+    # Días con alguna sesión ABIERTA en el futuro (GLOBAL ABIERTA)
+    fechas_disponibles = sorted([
+        f for f, sesiones in SESIONES_DIA.items()
+        if pd.to_datetime(f).date() >= today and any(s["estado"] == "ABIERTA" for s in sesiones)
+    ])
 
-    # Calendario (opcional)
+    # Calendario
     fecha_seleccionada = None
     try:
         from streamlit_calendar import calendar
 
         events = []
-        for f in SESIONES.keys():
-            fecha_dt = dt.date.fromisoformat(f)
-            ocupadas_mini = plazas_ocupadas(f, CATEG_MINI)
-            ocupadas_gran = plazas_ocupadas(f, CATEG_GRANDE)
+        for f, sesiones in SESIONES_DIA.items():
+            fecha_dt = pd.to_datetime(f).date()
 
-            # Colores: rojo (pasada o ambas llenas), amarillo (una llena), verde (hay hueco)
+            # Color agregado por día (estado/ocupación) — usa plazas libres ya respetando cierres por grupo
             if fecha_dt < today:
-                color = "#dc3545"  # pasada
+                color = "#dc3545"
             else:
-                full_mini = ocupadas_mini >= MAX_POR_CANASTA
-                full_gran = ocupadas_gran >= MAX_POR_CANASTA
-                if full_mini and full_gran:
-                    color = "#dc3545"
-                elif full_mini or full_gran:
-                    color = "#ffc107"
+                any_abierta = any(s["estado"] == "ABIERTA" for s in sesiones)
+                if not any_abierta:
+                    color = "#fd7e14"
                 else:
-                    color = "#28a745"
+                    full_all = True
+                    any_full = False
+                    for s in sesiones:
+                        mm = plazas_libres_mem(f, s["hora"], CATEG_MINI)
+                        gg = plazas_libres_mem(f, s["hora"], CATEG_GRANDE)
+                        if mm > 0 or gg > 0:
+                            full_all = False
+                        if mm <= 0 or gg <= 0:
+                            any_full = True
+                    color = "#dc3545" if full_all else "#ffc107" if any_full else "#28a745"
 
-            # Fondo (no para hoy)
             if fecha_dt != today:
-                events.append({
-                    "title": "",
-                    "start": f,
-                    "end": f,
-                    "display": "background",
-                    "backgroundColor": color,
-                })
+                events.append({"title": "", "start": f, "end": f, "display": "background", "backgroundColor": color})
 
-            # Etiqueta solo con hora (o "Cancelada")
-            hora = SESIONES.get(f, "Cancelada")
-            label = hora if hora != "Cancelada" else "Cancelada"
-            events.append({
-                "title": label,
-                "start": f,
-                "end": f,
-                "display": "auto",
-            })
+            for s in sorted(sesiones, key=lambda x: _parse_hora_cell(x["hora"])):
+                h_ini = _parse_hora_cell(s["hora"])
+                h_fin = hora_mas(h_ini, 60)
+                label = f"{h_ini}–{h_fin}"
+                events.append({"title": label, "start": f, "end": f, "display": "auto"})
 
         custom_css = """
         .fc-daygrid-day.fc-day-today { background-color: transparent !important; }
@@ -560,107 +562,110 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             padding: 2px 6px;
             background-color: #ffffff;
             color: navy !important;
-            font-weight: bold;
+            font-weight: bold.
         }
-        .fc-toolbar-title::first-letter {
-            text-transform: uppercase;
-        }
+        .fc-toolbar-title::first-letter { text-transform: uppercase; }
         """
-
 
         cal = calendar(
             events=events,
-            options={
-                "initialView": "dayGridMonth",
-                "height": 600,
-                "locale": "es",
-                "firstDay": 1,
-            },
+            options={"initialView": "dayGridMonth", "height": 600, "locale": "es", "firstDay": 1},
             custom_css=custom_css,
-            key="cal",
+            key="cal_user",
         )
 
         if cal and cal.get("clickedEvent"):
             fclicked = cal["clickedEvent"].get("start")[:10]
-            # Aceptar solo si es sesión válida y no pasada
-            if fclicked in SESIONES and dt.date.fromisoformat(fclicked) >= today:
-                fecha_seleccionada = fclicked
+            if fclicked in SESIONES_DIA and pd.to_datetime(fclicked).date() >= today:
+                if any(s["estado"] == "ABIERTA" for s in SESIONES_DIA.get(fclicked, [])):
+                    fecha_seleccionada = fclicked
     except Exception:
         pass
-    
-    # >>> Leyenda del calendario
-    st.caption("🟥 Rojo: no hay plazas · 🟨 Amarillo: plazas en un grupo · 🟩 Verde: plazas en ambos grupos")
 
-    # Si no viene del calendario, usar selectbox con solo futuras
+    st.caption("🟥 Pasada/sin plazas · 🟧 Cerrada · 🟨 Una categoría llena · 🟩 Plazas en ambas")
+
+    # Select de fechas abiertas
     if not fecha_seleccionada:
         st.subheader("📅 Selecciona fecha")
         if fechas_disponibles:
-            etiqueta = {f: f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {SESIONES[f]}" for f in fechas_disponibles}
+            etiqueta = {f: f"{pd.to_datetime(f).strftime('%d/%m/%Y')}" for f in fechas_disponibles}
             fecha_seleccionada = st.selectbox(
                 "Fechas con sesión",
                 options=fechas_disponibles,
-                format_func=lambda f: etiqueta[f]
+                format_func=lambda f: etiqueta[f],
+                key="sel_fecha_user"
             )
         else:
             st.info("De momento no hay fechas futuras disponibles.")
             st.stop()
 
-    # Bloque de reserva
-    fkey = fecha_seleccionada
-    hora_sesion = SESIONES.get(fkey, "—")
-    st.write(f"### Sesión del **{dt.datetime.strptime(fkey,'%Y-%m-%d').strftime('%d/%m/%Y')}** a las **{hora_sesion}**")
+    # Selector de HORA para la fecha elegida (GLOBAL ABIERTA)
+    sesiones_del_dia = [s for s in SESIONES_DIA.get(fecha_seleccionada, []) if s["estado"] == "ABIERTA"]
+    if not sesiones_del_dia:
+        st.warning("Ese día no tiene sesiones abiertas.")
+        st.stop()
 
-    libres_mini = plazas_libres(fkey, CATEG_MINI)
-    libres_gran = plazas_libres(fkey, CATEG_GRANDE)
+    horas_ops = sorted({_parse_hora_cell(s["hora"]) for s in sesiones_del_dia})
+    hora_seleccionada = st.selectbox("⏰ Elige la hora", options=horas_ops, key="sel_hora_user")
 
-    # >>> Aviso de capacidad + info de plazas
-    avisos = []
-    if libres_mini <= 0:
-        avisos.append("**Minibasket** está **COMPLETA**. Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
-    if libres_gran <= 0:
-        avisos.append("**Canasta grande** está **COMPLETA**. Si seleccionas esta categoría te apuntaremos a **lista de espera**.")
+    # Bloque de reserva para la sesión (fecha+hora)
+    fkey = _norm_fecha_iso(fecha_seleccionada)
+    hkey = _parse_hora_cell(hora_seleccionada)
+    info_s = get_sesion_info_mem(fkey, hkey)
+    hora_sesion = info_s.get("hora", "—")
+    estado_sesion = info_s.get("estado", "ABIERTA").upper()
 
-    # Warning único si hay categorías completas
-    if avisos:
-        st.warning("⚠️ " + "  \n• ".join([""] + avisos))
+    st.write(f"### Sesión del **{pd.to_datetime(fkey).strftime('%d/%m/%Y')}** de **{hora_sesion} a {hora_mas(hora_sesion, 60)}**")
 
-    # Mostrar info de plazas siempre que no estén las dos completas
-    ambas_completas = (libres_mini <= 0 and libres_gran <= 0)
-    if not ambas_completas:
-        if libres_mini > 0 and libres_gran <= 0:
-            st.info(f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}")
-        elif libres_gran > 0 and libres_mini <= 0:
-            st.info(f"Plazas libres · {CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}")
-        else:
-            st.info(
-                f"Plazas libres · {CATEG_MINI}: {libres_mini}/{MAX_POR_CANASTA}  ·  "
-                f"{CATEG_GRANDE}: {libres_gran}/{MAX_POR_CANASTA}"
-            )
+    if estado_sesion == "CERRADA":
+        st.warning("Esta sesión está **CERRADA**: no admite más reservas en ninguna categoría.")
+        st.stop()
 
+    lvl_m, txt_m = texto_estado_grupo(fkey, hkey, CATEG_MINI)
+    lvl_g, txt_g = texto_estado_grupo(fkey, hkey, CATEG_GRANDE)
+
+    getattr(st, lvl_m)(f"**{CATEG_MINI}:** {txt_m}")
+    getattr(st, lvl_g)(f"**{CATEG_GRANDE}:** {txt_g}")
 
     with st.expander("ℹ️ **IMPORTANTE para confirmar la reserva**", expanded=False):
         st.markdown("""
-    Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
-    Revisa los campos obligatorios o vuelve a intentarlo.  
-    *(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
+Si **después de pulsar “Reservar”** no aparece el botón **“⬇️ Descargar justificante (PDF)”**, la **reserva NO se ha completado**.  
+Revisa los campos obligatorios o vuelve a intentarlo.  
+*(En **lista de espera** también se genera justificante, identificado como “Lista de espera”.)*
         """)
-   # =========== Formulario + Tarjeta de éxito ===========
+
+    # =========== Formulario + Tarjeta de éxito ===========
     placeholder = st.empty()
-    
-    hkey = hora_sesion  # ✅ en esta versión simple
-    
     ok_flag = f"ok_{fkey}_{hkey}"
     ok_data_key = f"ok_data_{fkey}_{hkey}"
-    
+    celebrate_key = f"celebrate_{fkey}_{hkey}"
+
+    # Si YA hay una inscripción correcta en esta sesión para este navegador
     if st.session_state.get(ok_flag):
         data = st.session_state.get(ok_data_key, {})
-    
         with placeholder.container():
             if data.get("status") == "ok":
                 st.success("✅ Inscripción realizada correctamente")
             else:
                 st.info("ℹ️ Te hemos añadido a la lista de espera")
-    
+
+            # Mostrar código si existe (importante para que lo recuperen)
+            if data.get("family_code"):
+                st.info(f"🔐 **Tu código de familia:** `{data.get('family_code')}`\n\nGuárdalo: te servirá para autorrellenar próximas veces.")
+
+            # Solo canales por categoría aquí
+            canasta_data = (data.get("canasta", "") or "").lower()
+            if "mini" in canasta_data and CANAL_MINI_URL:
+                st.info(
+                    "🏀 **Canal exclusivo de MINIBASKET**\n"
+                    f"[Únete aquí para recibir avisos y la encuesta de esta categoría]({CANAL_MINI_URL})"
+                )
+            elif "canasta" in canasta_data and CANAL_GRANDE_URL:
+                st.info(
+                    "⛹️ **Canal exclusivo de CANASTA GRANDE**\n"
+                    f"[Únete aquí para recibir avisos y la encuesta de esta categoría]({CANAL_GRANDE_URL})"
+                )
+
             st.markdown("#### Resumen")
             col1, col2 = st.columns(2)
             with col1:
@@ -671,107 +676,259 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                 st.write(f"**Tutor:** {data.get('tutor','—')}")
                 st.write(f"**Tel.:** {data.get('telefono','—')}")
                 st.write(f"**Email:** {data.get('email','—')}")
-    
+
             st.divider()
             pdf = crear_justificante_pdf(data)
             st.download_button(
                 label="⬇️ Descargar justificante (PDF)",
                 data=pdf,
-                file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}.pdf",
+                file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}_{_parse_hora_cell(data.get('hora','')).replace(':','')}.pdf",
                 mime="application/pdf",
                 key=f"dl_btn_{fkey}_{hkey}"
             )
-    
+
             if st.button("Hacer otra reserva", key=f"otra_{fkey}_{hkey}"):
                 st.session_state.pop(ok_flag, None)
                 st.session_state.pop(ok_data_key, None)
+                st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
                 st.rerun()
-    
+
+        if st.session_state.pop(celebrate_key, False) and data.get("status") == "ok":
+            st.toast("✅ Inscripción realizada correctamente", icon="✅")
+            st.balloons()
+
     else:
         # ==========================
-        # FORMULARIO NORMAL
+        # AUTORRELLENO POR CÓDIGO (FUERA DEL FORM)
         # ==========================
+        codigo_cookie = (cookies.get("family_code") or "").strip()
+
+        st.markdown("### 🔐 Autorrellenar (opcional)")
+        codigo_familia = st.text_input(
+            "Código de familia",
+            value=codigo_cookie,
+            key=f"family_code_{fkey}_{hkey}",
+            placeholder="Ej: CBC-7F3KQ9P2..."
+        )
+
+        colc1, colc2 = st.columns([1, 1])
+        with colc1:
+            recordar_dispositivo = st.checkbox(
+                "Recordar este dispositivo",
+                value=bool(codigo_cookie),
+                key=f"remember_{fkey}_{hkey}"
+            )
+        with colc2:
+            if st.button("🧹 Olvidar este dispositivo", key=f"forget_{fkey}_{hkey}"):
+                cookies["family_code"] = ""
+                cookies.save()
+                st.success("Código eliminado de este dispositivo.")
+                st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
+                st.rerun()
+
+        # Autocarga si ya hay cookie (sin pulsar botón)
+        if codigo_cookie and not st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
+            fam = get_familia_por_codigo(codigo_cookie)
+            if fam:
+                hijos = get_hijos_por_codigo(codigo_cookie)
+                st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
+                st.session_state[f"autofilled_{fkey}_{hkey}"] = True
+
+        if st.button("✨ Autorrellenar con código", key=f"autofill_btn_{fkey}_{hkey}"):
+            fam = get_familia_por_codigo(codigo_familia)
+            if not fam:
+                st.error("Código no válido (o no encontrado).")
+            else:
+                hijos = get_hijos_por_codigo(fam["codigo"])
+                st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
+
+                if recordar_dispositivo:
+                    cookies["family_code"] = fam["codigo"]
+                    cookies.save()
+
+                st.success("Datos cargados.")
+                st.rerun()
+
+        hijos_cargados = st.session_state.get(f"hijos_{fkey}_{hkey}", [])
+        if hijos_cargados:
+            def _fmt_h(r):
+                return f"{to_text(r.get('jugador','—'))} · {to_text(r.get('equipo','—'))} · {to_text(r.get('canasta','—'))}"
+
+            sel_h = st.selectbox(
+                "Selecciona jugador guardado",
+                options=hijos_cargados,
+                format_func=_fmt_h,
+                key=f"selh_{fkey}_{hkey}"
+            )
+
+            if st.button("✅ Usar este jugador", key=f"useh_{fkey}_{hkey}"):
+                st.session_state[f"nombre_{fkey}_{hkey}"] = to_text(sel_h.get("jugador", ""))
+                eq = to_text(sel_h.get("equipo", "")).strip()
+                if eq in EQUIPOS_OPCIONES:
+                    st.session_state[f"equipo_sel_{fkey}_{hkey}"] = eq
+                    st.session_state[f"equipo_otro_{fkey}_{hkey}"] = ""
+                else:
+                    st.session_state[f"equipo_sel_{fkey}_{hkey}"] = "Otro"
+                    st.session_state[f"equipo_otro_{fkey}_{hkey}"] = eq
+                st.success("Jugador seleccionado.")
+                st.rerun()
+
+        st.divider()
+
+        # ===== FORMULARIO DE RESERVA =====
         with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
+            # Guardar familia DENTRO del form (es donde tiene sentido)
+            guardar_familia = st.checkbox(
+                "💾 Guardar estos datos para próximas reservas (con código de familia)",
+                value=True,
+                key=f"savefam_{fkey}_{hkey}"
+            )
+
             st.write("📝 Información del jugador")
-    
-            nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
-    
-            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], key=f"canasta_{fkey}_{hkey}")
-    
-            equipo_sel = st.selectbox("Categoría / Equipo", EQUIPOS_OPCIONES, index=0, key=f"equipo_sel_{fkey}_{hkey}")
-            equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}_{hkey}") if equipo_sel == "Otro" else ""
-    
+            nombre = st.text_input(
+                "Nombre y apellidos del jugador",
+                key=f"nombre_{fkey}_{hkey}"
+            )
+
+            # Canasta + placeholder de error
+            opciones_canasta = []
+            if get_estado_grupo_mem(fkey, hkey, CATEG_MINI) == "ABIERTA":
+                opciones_canasta.append(CATEG_MINI)
+            if get_estado_grupo_mem(fkey, hkey, CATEG_GRANDE) == "ABIERTA":
+                opciones_canasta.append(CATEG_GRANDE)
+
+            canasta = st.radio("Canasta", opciones_canasta, key=f"canasta_{fkey}_{hkey}")
+            err_canasta = st.empty()
+
+            # Aviso informativo según canasta
+            if canasta == CATEG_MINI:
+                st.caption("ℹ️ Para **Minibasket** solo se permiten categorías **Benjamín** y **Alevín**.")
+            elif canasta == CATEG_GRANDE:
+                st.caption("ℹ️ Para **Canasta grande** solo se permiten categorías **Infantil**, **Cadete** y **Junior**.")
+
+            # Categoría / Equipo + placeholder de error
+            equipo_sel = st.selectbox(
+                "Categoría / Equipo",
+                EQUIPOS_OPCIONES,
+                index=0,
+                key=f"equipo_sel_{fkey}_{hkey}"
+            )
+            equipo_otro = st.text_input(
+                "Especifica la categoría/equipo",
+                key=f"equipo_otro_{fkey}_{hkey}"
+            ) if equipo_sel == "Otro" else ""
+
             if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
                 equipo_val = equipo_sel
             else:
                 equipo_val = (equipo_otro or "").strip()
-    
+
+            err_equipo = st.empty()
+
             padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}_{hkey}")
-    
+
             telefono = st.text_input(
                 "Teléfono de contacto del tutor (solo números)",
                 key=f"telefono_{fkey}_{hkey}",
                 max_chars=9,
                 placeholder="Ej: 612345678"
             )
-    
+            err_telefono = st.empty()
+
             email = st.text_input("Email", key=f"email_{fkey}_{hkey}")
-    
+
+            st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
+
             enviar = st.form_submit_button("Reservar")
-    
+
             if enviar:
+                err_canasta.empty()
+                err_equipo.empty()
+                err_telefono.empty()
+
                 hay_error = False
-    
-                if not nombre.strip():
+
+                if not nombre:
                     st.error("Por favor, rellena el **nombre del jugador**.")
                     hay_error = True
-    
-                if not telefono.strip():
-                    st.error("El teléfono es obligatorio.")
+
+                if not telefono:
+                    err_telefono.error("El teléfono es obligatorio.")
                     hay_error = True
                 elif not telefono.isdigit():
-                    st.error("El teléfono solo puede contener números.")
+                    err_telefono.error("El teléfono solo puede contener números (sin espacios ni guiones).")
                     hay_error = True
-    
+
                 if not equipo_val:
-                    st.error("La categoría/equipo es obligatoria.")
+                    err_equipo.error("La categoría/equipo es obligatoria.")
                     hay_error = True
-    
-                if not hay_error:
-                    ya = ya_existe_en_sesion(fkey, nombre)
+                else:
+                    ev = equipo_val.lower()
+                    if canasta == CATEG_MINI and equipo_sel != "Otro":
+                        if not (ev.startswith("benjamín") or ev.startswith("benjamin") or ev.startswith("alevín") or ev.startswith("alevin")):
+                            err_canasta.error("Para Minibasket solo se permiten categorías Benjamín o Alevín.")
+                            hay_error = True
+                    if canasta == CATEG_GRANDE and equipo_sel != "Otro":
+                        if not (ev.startswith("infantil") or ev.startswith("cadete") or ev.startswith("junior")):
+                            err_canasta.error("Para Canasta grande solo se permiten Infantil, Cadete o Junior.")
+                            hay_error = True
+
+                if get_estado_grupo_mem(fkey, hkey, canasta) == "CERRADA":
+                    err_canasta.error(f"⚠️ {canasta} está **CERRADA** para esta sesión. Elige la otra canasta.")
+                    hay_error = True
+
+                if hay_error:
+                    pass
+                else:
+                    ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
                     elif ya == "waitlist":
                         st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
                     else:
-                        libres = plazas_libres(fkey, canasta)
-    
+                        libres_cat = plazas_libres_mem(fkey, hkey, canasta)
+
                         row = [
                             dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey,
-                            hora_sesion,
-                            nombre,
-                            canasta,
-                            equipo_val,
-                            padre,
-                            telefono,
-                            email
+                            fkey, hora_sesion, nombre, canasta,
+                            (equipo_val or ""), (padre or ""), telefono, (email or "")
                         ]
-    
-                        if libres <= 0:
+
+                        # ---- Guardar familia/hijo y cookie (si procede) ----
+                        family_code = ""
+                        if guardar_familia:
+                            # usa el código del input (o cookie)
+                            cod_in = (codigo_familia or "").strip() or codigo_cookie
+                            family_code = upsert_familia_y_hijo(
+                                cod_in if cod_in else None,
+                                (padre or ""), telefono, (email or ""),
+                                nombre, (equipo_val or ""), canasta
+                            )
+                            if recordar_dispositivo and family_code:
+                                cookies["family_code"] = family_code
+                                cookies.save()
+
+                        if libres_cat <= 0:
                             append_row("waitlist", row)
                             st.session_state[ok_flag] = True
                             st.session_state[ok_data_key] = {
                                 "status": "wait",
                                 "fecha_iso": fkey,
-                                "fecha_txt": dt.datetime.strptime(fkey, "%Y-%m-%d").strftime("%d/%m/%Y"),
+                                "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
                                 "hora": hora_sesion,
                                 "nombre": nombre,
                                 "canasta": canasta,
-                                "equipo": equipo_val,
-                                "tutor": padre,
+                                "equipo": (equipo_val or "—"),
+                                "tutor": (padre or "—"),
                                 "telefono": telefono,
-                                "email": email,
+                                "email": (email or "—"),
+                                "family_code": family_code,
                             }
                             st.rerun()
                         else:
@@ -780,13 +937,15 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
                             st.session_state[ok_data_key] = {
                                 "status": "ok",
                                 "fecha_iso": fkey,
-                                "fecha_txt": dt.datetime.strptime(fkey, "%Y-%m-%d").strftime("%d/%m/%Y"),
+                                "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
                                 "hora": hora_sesion,
                                 "nombre": nombre,
                                 "canasta": canasta,
-                                "equipo": equipo_val,
-                                "tutor": padre,
+                                "equipo": (equipo_val or "—"),
+                                "tutor": (padre or "—"),
                                 "telefono": telefono,
-                                "email": email,
+                                "email": (email or "—"),
+                                "family_code": family_code,
                             }
+                            st.session_state[celebrate_key] = True
                             st.rerun()
