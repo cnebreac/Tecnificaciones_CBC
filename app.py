@@ -1353,11 +1353,12 @@ Revisa los campos obligatorios o vuelve a intentarlo.
 
             colc1, colc2 = st.columns([1, 1])
             with colc1:
-                recordar_dispositivo = st.checkbox(
-                    "Recordar este dispositivo",
-                    value=bool(codigo_cookie),
-                    key=f"remember_{fkey}_{hkey}"
-                )
+                mostrar_recordar = (not codigo_cookie) and (fam_valida_o_hijos_cargados)
+                if mostrar_recordar:
+                    recordar_dispositivo = st.checkbox("Guardar este código en este dispositivo", value=False)
+                else:
+                    recordar_dispositivo = False
+
             with colc2:
                 if st.button("🧹 Olvidar este dispositivo", key=f"forget_{fkey}_{hkey}"):
                     cookies["family_code"] = ""
