@@ -3,6 +3,10 @@ import pandas as pd
 from io import BytesIO
 import datetime as dt
 import os
+from streamlit_cookies_manager import EncryptedCookieManager
+import secrets
+import string
+
 
 # ====== CONFIGURACIÓN DE SESIONES DISPONIBLES ======
 SESIONES = {
@@ -57,6 +61,14 @@ def read_secret(key: str, default=None):
     except Exception:
         return os.getenv(key, default)
 
+cookies = EncryptedCookieManager(
+    prefix="cbc/",
+    password=read_secret("COOKIE_PASSWORD", "CAMBIA_ESTO_EN_SECRETS")
+)
+
+if not cookies.ready():
+    st.stop()
+
 def to_text(v):
     if v is None:
         return ""
@@ -75,6 +87,26 @@ def iso(d: dt.date) -> str:
 
 def _norm_name(s: str) -> str:
     return " ".join((s or "").split()).casefold()
+
+FAMILIAS_HEADERS = ["codigo","tutor","telefono","email","updated_at"]
+HIJOS_HEADERS    = ["codigo","jugador","equipo","canasta","updated_at"]
+
+def _ensure_ws(sh, title: str, headers: list[str], cols: int):
+    try:
+        ws = sh.worksheet(title)
+        h = ws.row_values(1)
+        if len(h) < len(headers):
+            _retry_gspread(ws.update, f"A1:{chr(64+len(headers))}1", [headers])
+        return ws
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=title, rows=500, cols=cols)
+        _retry_gspread(ws.update, f"A1:{chr(64+len(headers))}1", [headers])
+        return ws
+
+def _gen_family_code(prefix="CBC-", n=10) -> str:
+    # 10 chars base32 friendly (sin 0/O, 1/I)
+    alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    return prefix + "".join(secrets.choice(alphabet) for _ in range(n))
 
 # ====== GOOGLE SHEETS ======
 import gspread
@@ -100,6 +132,118 @@ def _open_sheet():
     else:
         st.error("Falta SHEETS_SPREADSHEET_URL o SHEETS_SPREADSHEET_ID en secrets.")
         st.stop()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_familias_cached() -> pd.DataFrame:
+    sh = _open_sheet()
+    ws = _ensure_ws(sh, "familias", FAMILIAS_HEADERS, cols=len(FAMILIAS_HEADERS))
+    vals = ws.get_all_values()
+    if not vals or len(vals) == 1:
+        return pd.DataFrame(columns=FAMILIAS_HEADERS)
+    df = pd.DataFrame(vals[1:], columns=[h.strip() for h in vals[0]])
+    for c in FAMILIAS_HEADERS:
+        if c not in df.columns: df[c] = ""
+    df["codigo"] = df["codigo"].astype(str).str.strip()
+    return df
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_hijos_cached() -> pd.DataFrame:
+    sh = _open_sheet()
+    ws = _ensure_ws(sh, "hijos", HIJOS_HEADERS, cols=len(HIJOS_HEADERS))
+    vals = ws.get_all_values()
+    if not vals or len(vals) == 1:
+        return pd.DataFrame(columns=HIJOS_HEADERS)
+    df = pd.DataFrame(vals[1:], columns=[h.strip() for h in vals[0]])
+    for c in HIJOS_HEADERS:
+        if c not in df.columns: df[c] = ""
+    df["codigo"] = df["codigo"].astype(str).str.strip()
+    return df
+
+def get_familia_por_codigo(codigo: str) -> dict | None:
+    cod = (codigo or "").strip().upper()
+    if not cod:
+        return None
+    df = _load_familias_cached()
+    m = df[df["codigo"].str.upper() == cod]
+    if m.empty:
+        return None
+    r = m.iloc[-1].to_dict()
+    return {
+        "codigo": cod,
+        "tutor": to_text(r.get("tutor","")),
+        "telefono": to_text(r.get("telefono","")),
+        "email": to_text(r.get("email","")),
+    }
+
+def get_hijos_por_codigo(codigo: str) -> list[dict]:
+    cod = (codigo or "").strip().upper()
+    if not cod:
+        return []
+    df = _load_hijos_cached()
+    m = df[df["codigo"].str.upper() == cod]
+    if m.empty:
+        return []
+    return m.to_dict("records")
+
+def upsert_familia_y_hijo(codigo: str | None, tutor: str, telefono: str, email: str,
+                          jugador: str, equipo: str, canasta: str) -> str:
+    sh = _open_sheet()
+    ws_fam = _ensure_ws(sh, "familias", FAMILIAS_HEADERS, cols=len(FAMILIAS_HEADERS))
+    ws_hij = _ensure_ws(sh, "hijos", HIJOS_HEADERS, cols=len(HIJOS_HEADERS))
+    now = dt.datetime.now().isoformat(timespec="seconds")
+
+    tel = (telefono or "").strip()
+    if not tel:
+        return codigo or ""
+
+    # 1) Si no hay código, intentamos reutilizar uno por teléfono (si ya existe)
+    if not codigo:
+        df = _load_familias_cached()
+        m = df[df["telefono"].astype(str).str.strip() == tel]
+        if not m.empty:
+            codigo = to_text(m.iloc[-1].get("codigo","")).strip()
+
+    # 2) Si sigue sin haber, generamos uno nuevo
+    if not codigo:
+        codigo = _gen_family_code()
+
+    codigo = codigo.strip().upper()
+
+    # 3) Upsert familia (por código)
+    rows = _retry_gspread(ws_fam.get_all_values)
+    if not rows:
+        _retry_gspread(ws_fam.update, "A1:E1", [FAMILIAS_HEADERS])
+        rows = _retry_gspread(ws_fam.get_all_values)
+
+    updated = False
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 1 and str(row[0]).strip().upper() == codigo:
+            _retry_gspread(ws_fam.update, f"A{i}:E{i}", [[codigo, tutor, tel, email, now]])
+            updated = True
+            break
+    if not updated:
+        _retry_gspread(ws_fam.append_row, [codigo, tutor, tel, email, now], value_input_option="USER_ENTERED")
+
+    # 4) Upsert hijo (por código + jugador_norm)
+    jugador_norm = _norm_name(jugador)
+    rows2 = _retry_gspread(ws_hij.get_all_values)
+    if not rows2:
+        _retry_gspread(ws_hij.update, "A1:E1", [HIJOS_HEADERS])
+        rows2 = _retry_gspread(ws_hij.get_all_values)
+
+    done = False
+    for i, row in enumerate(rows2[1:], start=2):
+        if len(row) >= 2 and str(row[0]).strip().upper() == codigo and _norm_name(row[1]) == jugador_norm:
+            _retry_gspread(ws_hij.update, f"A{i}:E{i}", [[codigo, jugador, equipo, canasta, now]])
+            done = True
+            break
+    if not done:
+        _retry_gspread(ws_hij.append_row, [codigo, jugador, equipo, canasta, now], value_input_option="USER_ENTERED")
+
+    # invalidar caches
+    _load_familias_cached.clear()
+    _load_hijos_cached.clear()
+    return codigo
 
 @st.cache_data(ttl=15)
 def load_df(sheet_name: str) -> pd.DataFrame:
@@ -216,6 +360,14 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
     c.setFont("Helvetica-Oblique", 9)
     c.setFillColor(colors.grey)
     c.drawString(x, y, "Conserve este justificante como comprobante de su reserva.")
+    # ... después del texto de "Conserve este justificante..."
+    y -= 0.6*cm
+    family_code = to_text(datos.get("family_code","")).strip()
+    if family_code:
+        c.setFillColor(_colors.black)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(x, y, f"Código de familia (para autorrelleno): {family_code}")
+
     c.setFillColor(colors.black)
 
     c.showPage()
