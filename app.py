@@ -1332,8 +1332,10 @@ Revisa los campos obligatorios o vuelve a intentarlo.
     else:
         # ---- Autorrelleno seguro por código ----
         codigo_cookie = (cookies.get("family_code") or "").strip()
+
+        st.markdown("### 🔐 Autorrellenar (opcional)")
         codigo_familia = st.text_input(
-            "🔐 Código de familia (opcional)",
+            "Código de familia",
             value=codigo_cookie,
             key=f"family_code_{fkey}_{hkey}",
             placeholder="Ej: CBC-7F3KQ9P2..."
@@ -1351,21 +1353,30 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 cookies["family_code"] = ""
                 cookies.save()
                 st.success("Código eliminado de este dispositivo.")
+                st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
                 st.rerun()
 
-        if st.button("✨ Autorrellenar con código", key=f"autofill_{fkey}_{hkey}"):
+        # Autocarga si ya hay cookie (sin pulsar botón)
+        if codigo_cookie and not st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
+            fam = get_familia_por_codigo(codigo_cookie)
+            if fam:
+                hijos = get_hijos_por_codigo(codigo_cookie)
+                st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
+                st.session_state[f"autofilled_{fkey}_{hkey}"] = True
+
+        if st.button("✨ Autorrellenar con código", key=f"autofill_btn_{fkey}_{hkey}"):
             fam = get_familia_por_codigo(codigo_familia)
             if not fam:
                 st.error("Código no válido (o no encontrado).")
             else:
-                hijos = get_hijos_por_codigo(codigo_familia)
-
-                st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor","")
-                st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono","")
-                st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email","")
-
-                if hijos:
-                    st.session_state[f"hijos_{fkey}_{hkey}"] = hijos
+                hijos = get_hijos_por_codigo(fam["codigo"])
+                st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
 
                 if recordar_dispositivo:
                     cookies["family_code"] = fam["codigo"]
