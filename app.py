@@ -1403,8 +1403,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     input_norm  = (codigo_familia or "").strip().upper()
                     cookie_norm = (codigo_cookie_effective or "").strip().upper()
                     mostrar_usar = (not cookie_norm) or (input_norm and input_norm != cookie_norm)
-                    st.info("Si tienes un código válido, usa 'Usar este código' para ver tus jugadores guardados.")
-
         
                     if mostrar_usar:
                         if st.button("Usar este código", key=f"autofill_btn_{fkey}_{hkey}", use_container_width=True):
@@ -1540,6 +1538,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     # Preferimos el código del input si está, si no el cookie actual, y si no el del padre cargado
                     cod_para_recordar = (codigo_familia or "").strip() or codigo_cookie
                     cod_para_recordar = cod_para_recordar.upper().strip()
+                    family_code_pdf = cod_para_recordar
                     
                     if recordar_dispositivo and cod_para_recordar:
                         cookies["family_code"] = cod_para_recordar
@@ -1567,6 +1566,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             "tutor": tutor_h,
                             "telefono": telefono_h,
                             "email": email_h,
+                            "family_code": family_code_pdf,
                         }
                         st.rerun()
                     else:
@@ -1583,6 +1583,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             "tutor": tutor_h,
                             "telefono": telefono_h,
                             "email": email_h,
+                            "family_code": family_code_pdf,
                         }
                         st.session_state[celebrate_key] = True
                         st.rerun()
@@ -1645,7 +1646,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         
                 st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
                 guardar_familia = st.checkbox(
-                    "💾 Guardar estos datos para próximas reservas (con código de familia)",
+                    "Guardar estos datos para próximas reservas (Genera código de familia)",
                     value=True,
                     key=k_savefam
                 )
