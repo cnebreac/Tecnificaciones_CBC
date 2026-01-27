@@ -1379,120 +1379,120 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         # ==========================
         hijos_cargados = st.session_state.get(f"hijos_{fkey}_{hkey}", [])
         if hijos_cargados:
-            st.markdown("### ⚡ Reserva rápida (jugador guardado)")
-
             def _fmt_h(r):
                 return f"{to_text(r.get('jugador','—'))} · {to_text(r.get('equipo','—'))} · {to_text(r.get('canasta','—'))}"
-
+            
             sel_h = st.selectbox(
                 "Selecciona jugador guardado",
                 options=hijos_cargados,
                 format_func=_fmt_h,
                 key=f"selh_{fkey}_{hkey}"
             )
-
-            cfast1, cfast2 = st.columns([1, 1])
-            with cfast1:
-                if st.button("⚡ Reservar directamente", key=f"reserveh_{fkey}_{hkey}", use_container_width=True):
-                    nombre_h = to_text(sel_h.get("jugador", "")).strip()
-                    equipo_h = to_text(sel_h.get("equipo", "")).strip()
-                    canasta_h = to_text(sel_h.get("canasta", "")).strip()
-
-                    tutor_h = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip() or "—"
-                    telefono_h = to_text(st.session_state.get(f"telefono_{fkey}_{hkey}", "")).strip()
-                    email_h = to_text(st.session_state.get(f"email_{fkey}_{hkey}", "")).strip() or "—"
-
-                    if not nombre_h:
-                        st.error("No se pudo leer el nombre del jugador guardado.")
-                        st.stop()
-                    if not telefono_h or (not str(telefono_h).isdigit()):
-                        st.error("Falta un teléfono válido guardado. Pulsa 'Autorrellenar con código' y revisa los datos.")
-                        st.stop()
-
-                    canasta_h_low = canasta_h.lower()
-                    if "mini" in canasta_h_low:
-                        canasta_final = CATEG_MINI
-                    elif "canasta" in canasta_h_low or "grande" in canasta_h_low:
-                        canasta_final = CATEG_GRANDE
-                    else:
-                        st.error("El jugador guardado no tiene canasta válida (Minibasket / Canasta grande).")
-                        st.stop()
-
-                    info_tmp = get_sesion_info_mem(fkey, hkey)
-                    if (info_tmp.get("estado", "ABIERTA") or "ABIERTA").upper() == "CERRADA":
-                        st.error("Esta sesión está CERRADA (GLOBAL).")
-                        st.stop()
-
-                    if get_estado_grupo_mem(fkey, hkey, canasta_final) == "CERRADA":
-                        st.error(f"{canasta_final} está CERRADA para esta sesión. Usa el formulario para elegir otra canasta.")
-                        st.stop()
-
-                    ya = ya_existe_en_sesion_mem(fkey, hkey, nombre_h)
-                    if ya == "inscripciones":
-                        st.error("❌ Este jugador ya está inscrito en esta sesión.")
-                        st.stop()
-                    if ya == "waitlist":
-                        st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
-                        st.stop()
-
-                    equipo_val = equipo_h or "—"
-
-                    row = [
-                        dt.datetime.now().isoformat(timespec="seconds"),
-                        fkey, hora_sesion, nombre_h, canasta_final,
-                        equipo_val, tutor_h, telefono_h, email_h
-                    ]
-
-                    libres_cat = plazas_libres_mem(fkey, hkey, canasta_final)
-                    if libres_cat <= 0:
-                        append_row("waitlist", row)
-                        st.session_state[ok_flag] = True
-                        st.session_state[ok_data_key] = {
-                            "status": "wait",
-                            "fecha_iso": fkey,
-                            "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
-                            "hora": hora_sesion,
-                            "nombre": nombre_h,
-                            "canasta": canasta_final,
-                            "equipo": equipo_val,
-                            "tutor": tutor_h,
-                            "telefono": telefono_h,
-                            "email": email_h,
-                        }
-                        st.rerun()
-                    else:
-                        append_row("inscripciones", row)
-                        st.session_state[ok_flag] = True
-                        st.session_state[ok_data_key] = {
-                            "status": "ok",
-                            "fecha_iso": fkey,
-                            "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
-                            "hora": hora_sesion,
-                            "nombre": nombre_h,
-                            "canasta": canasta_final,
-                            "equipo": equipo_val,
-                            "tutor": tutor_h,
-                            "telefono": telefono_h,
-                            "email": email_h,
-                        }
-                        st.session_state[celebrate_key] = True
-                        st.rerun()
-
-            with cfast2:
-                if st.button("✍️ Editar datos con el formulario", key=f"editfast_{fkey}_{hkey}", use_container_width=True):
-                    st.session_state[f"nombre_{fkey}_{hkey}"] = to_text(sel_h.get("jugador",""))
-                    eq = to_text(sel_h.get("equipo","")).strip()
-                    if eq in EQUIPOS_OPCIONES:
-                        st.session_state[f"equipo_sel_{fkey}_{hkey}"] = eq
-                        st.session_state[f"equipo_otro_{fkey}_{hkey}"] = ""
-                    else:
-                        st.session_state[f"equipo_sel_{fkey}_{hkey}"] = "Otro"
-                        st.session_state[f"equipo_otro_{fkey}_{hkey}"] = eq
-                    st.info("Datos cargados en el formulario. Ajusta lo que necesites y pulsa Reservar.")
+        
+            # Botón que RESERVA DIRECTO
+            if st.button("⚡ Reservar con este jugador", key=f"reserveh_{fkey}_{hkey}", use_container_width=True):
+                # --- Datos del jugador guardado ---
+                nombre_h = to_text(sel_h.get("jugador", "")).strip()
+                equipo_h = to_text(sel_h.get("equipo", "")).strip()
+                canasta_h = to_text(sel_h.get("canasta", "")).strip()
+        
+                # --- Datos tutor (de session_state ya autorrellenados por el código) ---
+                tutor_h = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip() or "—"
+                telefono_h = to_text(st.session_state.get(f"telefono_{fkey}_{hkey}", "")).strip()
+                email_h = to_text(st.session_state.get(f"email_{fkey}_{hkey}", "")).strip() or "—"
+        
+                # --- Validaciones mínimas ---
+                if not nombre_h:
+                    st.error("No se pudo leer el nombre del jugador guardado.")
+                    st.stop()
+        
+                if not telefono_h or (not str(telefono_h).isdigit()):
+                    st.error("Falta un teléfono válido guardado para esta familia. Pulsa 'Autorrellenar con código' y revisa los datos.")
+                    st.stop()
+        
+                # Normaliza canasta guardada a tus constantes (por si viene con variantes)
+                canasta_h_low = canasta_h.lower()
+                if "mini" in canasta_h_low:
+                    canasta_final = CATEG_MINI
+                elif "canasta" in canasta_h_low or "grande" in canasta_h_low:
+                    canasta_final = CATEG_GRANDE
+                else:
+                    st.error("El jugador guardado no tiene canasta válida (Minibasket / Canasta grande).")
+                    st.stop()
+        
+                # La sesión global puede estar cerrada
+                info_s = get_sesion_info_mem(fkey, hkey)
+                estado_global = (info_s.get("estado", "ABIERTA") or "ABIERTA").upper()
+                if estado_global == "CERRADA":
+                    st.error("Esta sesión está CERRADA (GLOBAL).")
+                    st.stop()
+        
+                # La canasta puede estar cerrada por admin
+                if get_estado_grupo_mem(fkey, hkey, canasta_final) == "CERRADA":
+                    st.error(f"{canasta_final} está CERRADA para esta sesión. Reserva desde el formulario eligiendo la otra canasta.")
+                    st.stop()
+        
+                # Evitar duplicados
+                ya = ya_existe_en_sesion_mem(fkey, hkey, nombre_h)
+                if ya == "inscripciones":
+                    st.error("❌ Este jugador ya está inscrito en esta sesión.")
+                    st.stop()
+                if ya == "waitlist":
+                    st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
+                    st.stop()
+        
+                # Si el equipo guardado no está en la lista, lo mandamos como "Otro" (pero igualmente reservamos)
+                equipo_val = equipo_h or "—"
+        
+                # Construimos fila
+                row = [
+                    dt.datetime.now().isoformat(timespec="seconds"),
+                    fkey,
+                    hora_sesion,               # OJO: usa tu hora ya calculada arriba
+                    nombre_h,
+                    canasta_final,
+                    equipo_val,
+                    tutor_h,
+                    telefono_h,
+                    email_h
+                ]
+        
+                # Reserva / waitlist según plazas
+                libres_cat = plazas_libres_mem(fkey, hkey, canasta_final)
+                if libres_cat <= 0:
+                    append_row("waitlist", row)
+                    st.session_state[ok_flag] = True
+                    st.session_state[ok_data_key] = {
+                        "status": "wait",
+                        "fecha_iso": fkey,
+                        "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
+                        "hora": hora_sesion,
+                        "nombre": nombre_h,
+                        "canasta": canasta_final,
+                        "equipo": equipo_val,
+                        "tutor": tutor_h,
+                        "telefono": telefono_h,
+                        "email": email_h,
+                    }
                     st.rerun()
-
-            st.divider()
-
+                else:
+                    append_row("inscripciones", row)
+                    st.session_state[ok_flag] = True
+                    st.session_state[ok_data_key] = {
+                        "status": "ok",
+                        "fecha_iso": fkey,
+                        "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
+                        "hora": hora_sesion,
+                        "nombre": nombre_h,
+                        "canasta": canasta_final,
+                        "equipo": equipo_val,
+                        "tutor": tutor_h,
+                        "telefono": telefono_h,
+                        "email": email_h,
+                    }
+                    st.session_state[celebrate_key] = True
+                    st.rerun()
+                    
         # ===== FORMULARIO DE RESERVA =====
         with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
             guardar_familia = st.checkbox(
