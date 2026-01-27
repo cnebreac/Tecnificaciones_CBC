@@ -713,7 +713,7 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
         c.drawString(x, y, f"Código de familia: {family_code}")
 
     # ------- Canales de WhatsApp en el PDF -------
-    y -= 4*cm
+    y -= 2.5*cm
     c.setFont("Helvetica-Bold", 11)
     c.drawString(x, y, "Canales de comunicación:")
     y -= 0.6*cm
