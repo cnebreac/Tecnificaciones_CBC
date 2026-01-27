@@ -1326,6 +1326,157 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             st.toast("✅ Inscripción realizada correctamente", icon="✅")
             st.balloons()
 
+     # ===== FORMULARIO DE RESERVA =====
+        with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
+            guardar_familia = st.checkbox(
+                "💾 Guardar estos datos para próximas reservas (con código de familia)",
+                value=True,
+                key=f"savefam_{fkey}_{hkey}"
+            )
+
+            st.write("📝 Información del jugador")
+            nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
+
+            opciones_canasta = []
+            if get_estado_grupo_mem(fkey, hkey, CATEG_MINI) == "ABIERTA":
+                opciones_canasta.append(CATEG_MINI)
+            if get_estado_grupo_mem(fkey, hkey, CATEG_GRANDE) == "ABIERTA":
+                opciones_canasta.append(CATEG_GRANDE)
+
+            canasta = st.radio("Canasta", opciones_canasta, key=f"canasta_{fkey}_{hkey}")
+            err_canasta = st.empty()
+
+            if canasta == CATEG_MINI:
+                st.caption("ℹ️ Para **Minibasket** solo se permiten categorías **Benjamín** y **Alevín**.")
+            elif canasta == CATEG_GRANDE:
+                st.caption("ℹ️ Para **Canasta grande** solo se permiten categorías **Infantil**, **Cadete** y **Junior**.")
+
+            equipo_sel = st.selectbox("Categoría / Equipo", EQUIPOS_OPCIONES, index=0, key=f"equipo_sel_{fkey}_{hkey}")
+            equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}_{hkey}") if equipo_sel == "Otro" else ""
+
+            if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
+                equipo_val = equipo_sel
+            else:
+                equipo_val = (equipo_otro or "").strip()
+
+            err_equipo = st.empty()
+
+            padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}_{hkey}")
+
+            telefono = st.text_input(
+                "Teléfono de contacto del tutor (solo números)",
+                key=f"telefono_{fkey}_{hkey}",
+                max_chars=9,
+                placeholder="Ej: 612345678"
+            )
+            err_telefono = st.empty()
+
+            email = st.text_input("Email", key=f"email_{fkey}_{hkey}")
+
+            st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
+
+            enviar = st.form_submit_button("Reservar")
+
+            if enviar:
+                err_canasta.empty()
+                err_equipo.empty()
+                err_telefono.empty()
+
+                hay_error = False
+
+                if not nombre:
+                    st.error("Por favor, rellena el **nombre del jugador**.")
+                    hay_error = True
+
+                if not telefono:
+                    err_telefono.error("El teléfono es obligatorio.")
+                    hay_error = True
+                elif not telefono.isdigit():
+                    err_telefono.error("El teléfono solo puede contener números (sin espacios ni guiones).")
+                    hay_error = True
+
+                if not equipo_val:
+                    err_equipo.error("La categoría/equipo es obligatoria.")
+                    hay_error = True
+                else:
+                    ev = equipo_val.lower()
+                    if canasta == CATEG_MINI and equipo_sel != "Otro":
+                        if not (ev.startswith("benjamín") or ev.startswith("benjamin") or ev.startswith("alevín") or ev.startswith("alevin")):
+                            err_canasta.error("Para Minibasket solo se permiten categorías Benjamín o Alevín.")
+                            hay_error = True
+                    if canasta == CATEG_GRANDE and equipo_sel != "Otro":
+                        if not (ev.startswith("infantil") or ev.startswith("cadete") or ev.startswith("junior")):
+                            err_canasta.error("Para Canasta grande solo se permiten Infantil, Cadete o Junior.")
+                            hay_error = True
+
+                if get_estado_grupo_mem(fkey, hkey, canasta) == "CERRADA":
+                    err_canasta.error(f"⚠️ {canasta} está **CERRADA** para esta sesión. Elige la otra canasta.")
+                    hay_error = True
+
+                if not hay_error:
+                    ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
+                    if ya == "inscripciones":
+                        st.error("❌ Este jugador ya está inscrito en esta sesión.")
+                    elif ya == "waitlist":
+                        st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
+                    else:
+                        libres_cat = plazas_libres_mem(fkey, hkey, canasta)
+
+                        row = [
+                            dt.datetime.now().isoformat(timespec="seconds"),
+                            fkey, hora_sesion, nombre, canasta,
+                            (equipo_val or ""), (padre or ""), telefono, (email or "")
+                        ]
+
+                        # ---- Guardar familia/hijo y cookie (si procede) ----
+                        family_code = ""
+                        if guardar_familia:
+                            cod_in = (codigo_familia or "").strip() or codigo_cookie
+                            family_code = upsert_familia_y_hijo(
+                                cod_in if cod_in else None,
+                                (padre or ""), telefono, (email or ""),
+                                nombre, (equipo_val or ""), canasta
+                            )
+                            if recordar_dispositivo and family_code:
+                                cookies["family_code"] = family_code
+                                cookies.save()
+
+                        if libres_cat <= 0:
+                            append_row("waitlist", row)
+                            st.session_state[ok_flag] = True
+                            st.session_state[ok_data_key] = {
+                                "status": "wait",
+                                "fecha_iso": fkey,
+                                "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
+                                "hora": hora_sesion,
+                                "nombre": nombre,
+                                "canasta": canasta,
+                                "equipo": (equipo_val or "—"),
+                                "tutor": (padre or "—"),
+                                "telefono": telefono,
+                                "email": (email or "—"),
+                                "family_code": family_code,
+                            }
+                            st.rerun()
+                        else:
+                            append_row("inscripciones", row)
+                            st.session_state[ok_flag] = True
+                            st.session_state[ok_data_key] = {
+                                "status": "ok",
+                                "fecha_iso": fkey,
+                                "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
+                                "hora": hora_sesion,
+                                "nombre": nombre,
+                                "canasta": canasta,
+                                "equipo": (equipo_val or "—"),
+                                "tutor": (padre or "—"),
+                                "telefono": telefono,
+                                "email": (email or "—"),
+                                "family_code": family_code,
+                            }
+                            st.session_state[celebrate_key] = True
+                            st.rerun()
+
     # ------------------------------------------------------------------
     # ✅ 3) FORMULARIO (si NO hay ok_flag)
     # ------------------------------------------------------------------
@@ -1504,153 +1655,4 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     st.session_state[celebrate_key] = True
                     st.rerun()
                     
-        # ===== FORMULARIO DE RESERVA =====
-        with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
-            guardar_familia = st.checkbox(
-                "💾 Guardar estos datos para próximas reservas (con código de familia)",
-                value=True,
-                key=f"savefam_{fkey}_{hkey}"
-            )
-
-            st.write("📝 Información del jugador")
-            nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
-
-            opciones_canasta = []
-            if get_estado_grupo_mem(fkey, hkey, CATEG_MINI) == "ABIERTA":
-                opciones_canasta.append(CATEG_MINI)
-            if get_estado_grupo_mem(fkey, hkey, CATEG_GRANDE) == "ABIERTA":
-                opciones_canasta.append(CATEG_GRANDE)
-
-            canasta = st.radio("Canasta", opciones_canasta, key=f"canasta_{fkey}_{hkey}")
-            err_canasta = st.empty()
-
-            if canasta == CATEG_MINI:
-                st.caption("ℹ️ Para **Minibasket** solo se permiten categorías **Benjamín** y **Alevín**.")
-            elif canasta == CATEG_GRANDE:
-                st.caption("ℹ️ Para **Canasta grande** solo se permiten categorías **Infantil**, **Cadete** y **Junior**.")
-
-            equipo_sel = st.selectbox("Categoría / Equipo", EQUIPOS_OPCIONES, index=0, key=f"equipo_sel_{fkey}_{hkey}")
-            equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}_{hkey}") if equipo_sel == "Otro" else ""
-
-            if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
-                equipo_val = equipo_sel
-            else:
-                equipo_val = (equipo_otro or "").strip()
-
-            err_equipo = st.empty()
-
-            padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}_{hkey}")
-
-            telefono = st.text_input(
-                "Teléfono de contacto del tutor (solo números)",
-                key=f"telefono_{fkey}_{hkey}",
-                max_chars=9,
-                placeholder="Ej: 612345678"
-            )
-            err_telefono = st.empty()
-
-            email = st.text_input("Email", key=f"email_{fkey}_{hkey}")
-
-            st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
-
-            enviar = st.form_submit_button("Reservar")
-
-            if enviar:
-                err_canasta.empty()
-                err_equipo.empty()
-                err_telefono.empty()
-
-                hay_error = False
-
-                if not nombre:
-                    st.error("Por favor, rellena el **nombre del jugador**.")
-                    hay_error = True
-
-                if not telefono:
-                    err_telefono.error("El teléfono es obligatorio.")
-                    hay_error = True
-                elif not telefono.isdigit():
-                    err_telefono.error("El teléfono solo puede contener números (sin espacios ni guiones).")
-                    hay_error = True
-
-                if not equipo_val:
-                    err_equipo.error("La categoría/equipo es obligatoria.")
-                    hay_error = True
-                else:
-                    ev = equipo_val.lower()
-                    if canasta == CATEG_MINI and equipo_sel != "Otro":
-                        if not (ev.startswith("benjamín") or ev.startswith("benjamin") or ev.startswith("alevín") or ev.startswith("alevin")):
-                            err_canasta.error("Para Minibasket solo se permiten categorías Benjamín o Alevín.")
-                            hay_error = True
-                    if canasta == CATEG_GRANDE and equipo_sel != "Otro":
-                        if not (ev.startswith("infantil") or ev.startswith("cadete") or ev.startswith("junior")):
-                            err_canasta.error("Para Canasta grande solo se permiten Infantil, Cadete o Junior.")
-                            hay_error = True
-
-                if get_estado_grupo_mem(fkey, hkey, canasta) == "CERRADA":
-                    err_canasta.error(f"⚠️ {canasta} está **CERRADA** para esta sesión. Elige la otra canasta.")
-                    hay_error = True
-
-                if not hay_error:
-                    ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
-                    if ya == "inscripciones":
-                        st.error("❌ Este jugador ya está inscrito en esta sesión.")
-                    elif ya == "waitlist":
-                        st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
-                    else:
-                        libres_cat = plazas_libres_mem(fkey, hkey, canasta)
-
-                        row = [
-                            dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey, hora_sesion, nombre, canasta,
-                            (equipo_val or ""), (padre or ""), telefono, (email or "")
-                        ]
-
-                        # ---- Guardar familia/hijo y cookie (si procede) ----
-                        family_code = ""
-                        if guardar_familia:
-                            cod_in = (codigo_familia or "").strip() or codigo_cookie
-                            family_code = upsert_familia_y_hijo(
-                                cod_in if cod_in else None,
-                                (padre or ""), telefono, (email or ""),
-                                nombre, (equipo_val or ""), canasta
-                            )
-                            if recordar_dispositivo and family_code:
-                                cookies["family_code"] = family_code
-                                cookies.save()
-
-                        if libres_cat <= 0:
-                            append_row("waitlist", row)
-                            st.session_state[ok_flag] = True
-                            st.session_state[ok_data_key] = {
-                                "status": "wait",
-                                "fecha_iso": fkey,
-                                "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
-                                "hora": hora_sesion,
-                                "nombre": nombre,
-                                "canasta": canasta,
-                                "equipo": (equipo_val or "—"),
-                                "tutor": (padre or "—"),
-                                "telefono": telefono,
-                                "email": (email or "—"),
-                                "family_code": family_code,
-                            }
-                            st.rerun()
-                        else:
-                            append_row("inscripciones", row)
-                            st.session_state[ok_flag] = True
-                            st.session_state[ok_data_key] = {
-                                "status": "ok",
-                                "fecha_iso": fkey,
-                                "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
-                                "hora": hora_sesion,
-                                "nombre": nombre,
-                                "canasta": canasta,
-                                "equipo": (equipo_val or "—"),
-                                "tutor": (padre or "—"),
-                                "telefono": telefono,
-                                "email": (email or "—"),
-                                "family_code": family_code,
-                            }
-                            st.session_state[celebrate_key] = True
-                            st.rerun()
+       
