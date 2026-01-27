@@ -1364,20 +1364,38 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 else:
                     recordar_dispositivo = False
         
-                if st.button("Usar este código", key=f"autofill_btn_{fkey}_{hkey}", use_container_width=True):
-                    fam = get_familia_por_codigo(codigo_familia)
-                    if not fam:
-                        st.error("Código no válido (o no encontrado).")
-                    else:
-                        hijos = get_hijos_por_codigo(fam["codigo"])
-                        st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
-                        st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
-                        st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
-                        st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
-        
-                        st.success("Datos cargados.")
-                        st.rerun()
-                        
+                # Normaliza
+                cookie_norm = (codigo_cookie or "").strip().upper()
+                input_norm  = (codigo_familia or "").strip().upper()
+                
+                # Mostrar "Usar este código" solo cuando:
+                # - NO hay cookie, o
+                # - el usuario ha escrito un código distinto al guardado (y no está vacío)
+                show_usar = (not cookie_norm) or (input_norm and input_norm != cookie_norm)
+                
+                # (opcional) Mensajito si hay cookie y no se está intentando cambiar
+                if cookie_norm and (not input_norm or input_norm == cookie_norm):
+                    st.caption("✅ Ya estás usando el código guardado en este dispositivo.")
+                
+                if show_usar:
+                    if st.button(
+                        "Usar este código",
+                        key=f"autofill_btn_{fkey}_{hkey}",
+                        use_container_width=True
+                    ):
+                        fam = get_familia_por_codigo(codigo_familia)
+                        if not fam:
+                            st.error("Código no válido (o no encontrado).")
+                        else:
+                            hijos = get_hijos_por_codigo(fam["codigo"])
+                            st.session_state[f"padre_{fkey}_{hkey}"] = fam.get("tutor", "")
+                            st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
+                            st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
+                            st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
+                
+                            st.success("Datos cargados.")
+                            st.rerun()
+
             with col_forget:
                 if codigo_cookie:
                     st.markdown(
