@@ -1179,7 +1179,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             padding: 2px 6px;
             background-color: #ffffff;
             color: navy !important;
-            font-weight: bold.
+            font-weight: bold;
         }
         .fc-toolbar-title::first-letter { text-transform: uppercase; }
         """
@@ -1313,7 +1313,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         if st.session_state.pop(celebrate_key, False) and data.get("status") == "ok":
             st.toast("✅ Inscripción realizada correctamente", icon="✅")
             st.balloons()
-
+    
     else:
         # ---- Autorrelleno seguro por código ----
         codigo_cookie = (cookies.get("family_code") or "").strip()
@@ -1488,6 +1488,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
 
             st.divider()
 
+       
         # ===== FORMULARIO DE RESERVA =====
         with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
             # Guardar familia DENTRO del form (es donde tiene sentido)
