@@ -1,27 +1,33 @@
+# ===== app.py (1/5) =====
+# app.py
 import streamlit as st
 import pandas as pd
 from io import BytesIO
 import datetime as dt
 import os
+import re
+import time
 from streamlit_cookies_manager import EncryptedCookieManager
 import secrets
 import string
 
-
-# ====== CONFIGURACIÓN DE SESIONES DISPONIBLES ======
-SESIONES = {
-}
+# ====== AJUSTES GENERALES ======
+st.set_page_config(page_title="Tecnificaciones CBC ", layout="centered")
+APP_TITLE = "🏀 Tecnificaciones CBC - Reserva de Sesiones"
+ADMIN_QUERY_FLAG = "admin"
 
 # Capacidad por categoría
 MAX_POR_CANASTA = 4
 CATEG_MINI = "Minibasket"
 CATEG_GRANDE = "Canasta grande"
 
-# Opciones para Categoría/Equipo (edítalas a tu gusto)
+# Enlaces a canales de WhatsApp
+CANAL_GENERAL_URL = st.secrets.get("CANAL_GENERAL_URL", "")
+CANAL_MINI_URL = st.secrets.get("CANAL_MINI_URL", "")
+CANAL_GRANDE_URL = st.secrets.get("CANAL_GRANDE_URL", "")
+
 EQUIPOS_OPCIONES = [
     "— Selecciona —",
-    "Escuela 1ºaño 2019",
-    "Escuela 2ºaño 2018",
     "Benjamín 1ºaño 2017",
     "Benjamín 2ºaño 2016",
     "Alevín 1ºaño 2015",
@@ -33,7 +39,7 @@ EQUIPOS_OPCIONES = [
     "Junior 1ºaño 2009",
     "Junior 2ºaño 2008",
     "Senior",
-    "Otro",
+    "Otro"
 ]
 
 # ====== CHEQUEOS DE SECRETS ======
@@ -49,18 +55,13 @@ if not (_SID or _URL or _SID_BLOCK):
     st.error("Configura en secrets la hoja: SHEETS_SPREADSHEET_ID o SHEETS_SPREADSHEET_URL (o [sheets].sheet_id).")
     st.stop()
 
-# ====== AJUSTES GENERALES ======
-st.set_page_config(page_title="Tecnificaciones CBC ", layout="centered")
-APP_TITLE = "🏀 Tecnificaciones CBC - Reserva de Sesiones"
-ADMIN_QUERY_FLAG = "admin"
-
 # ====== UTILS ======
 def read_secret(key: str, default=None):
     try:
         return st.secrets[key]
     except Exception:
         return os.getenv(key, default)
-
+        
 cookies = EncryptedCookieManager(
     prefix="cbc/",
     password=read_secret("COOKIE_PASSWORD", "CAMBIA_ESTO_EN_SECRETS")
@@ -81,9 +82,6 @@ def to_text(v):
     if isinstance(v, bytes):
         return v.decode("utf-8", errors="ignore")
     return str(v)
-
-def iso(d: dt.date) -> str:
-    return d.isoformat()
 
 def _norm_name(s: str) -> str:
     return " ".join((s or "").split()).casefold()
@@ -108,30 +106,237 @@ def _gen_family_code(prefix="CBC-", n=10) -> str:
     alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
     return prefix + "".join(secrets.choice(alphabet) for _ in range(n))
 
+def crear_justificante_admin_pdf(fecha_iso: str, hora: str, record: dict, status_forzado: str = "ok") -> BytesIO:
+    f_iso = _norm_fecha_iso(fecha_iso)
+    h = _parse_hora_cell(hora)
+    datos = {
+        "status": status_forzado,  # "ok" para confirmada, "wait" para espera si quisieras
+        "fecha_iso": f_iso,
+        "fecha_txt": pd.to_datetime(f_iso).strftime("%d/%m/%Y"),
+        "hora": h,
+        "nombre": to_text(record.get("nombre", "—")),
+        "canasta": to_text(record.get("canasta", "—")),
+        "equipo": to_text(record.get("equipo", "—")),
+        "tutor": to_text(record.get("tutor", "—")),
+        "telefono": to_text(record.get("telefono", "—")),
+        "email": to_text(record.get("email", "—")),
+    }
+    return crear_justificante_pdf(datos)
+    
+def texto_estado_grupo(fecha_iso: str, hora: str, canasta: str) -> tuple[str, str]:
+    """
+    Devuelve (nivel_streamlit, texto) según el estado real del grupo:
+    - CERRADA -> cerrada por admin (no lista de espera)
+    - ABIERTA sin plazas -> completa (lista de espera)
+    - ABIERTA con plazas -> plazas disponibles
+    """
+    estado = get_estado_grupo_mem(fecha_iso, hora, canasta)
+
+    if estado == "CERRADA":
+        return "error", "⛔ **CERRADA** · no admite reservas"
+
+    libres = plazas_libres_mem(fecha_iso, hora, canasta)
+
+    if libres <= 0:
+        return "warning", "🔴 **COMPLETA** → entrarás en *lista de espera*"
+    if libres == 1:
+        return "warning", "🟡 **Última plaza**"
+    return "info", "🟢 **Plazas disponibles**"
+
+
+def _norm_hora(h: str) -> str:
+    h = (h or "").strip()
+    if not h:
+        return "—"
+    if re.fullmatch(r"\d{3,4}", h):
+        if len(h) == 3:
+            h = "0" + h
+        return f"{int(h[:2]):02d}:{int(h[2:]):02d}"
+    m = re.match(r'^(\d{1,2})(?::?(\d{1,2}))?$', h)
+    if m:
+        hh = int(m.group(1))
+        mm = int(m.group(2) or 0)
+        hh = max(0, min(23, hh))
+        mm = max(0, min(59, mm))
+        return f"{hh:02d}:{mm:02d}"
+    # '09:30:00'
+    m2 = re.match(r'^(\d{1,2}):(\d{2}):\d{2}$', h)
+    if m2:
+        return f"{int(m2.group(1)):02d}:{int(m2.group(2)):02d}"
+    try:
+        return dt.datetime.strptime(h[:5], "%H:%M").strftime("%H:%M")
+    except Exception:
+        return h
+
+# Acepta '09:30', '9:30', '09h30', '930', '09:30-10:30', '09:30 – 10:30', '09:30:00',
+# y objetos time/datetime → '09:30'
+_HHMM_RE = re.compile(r'(?:(\d{1,2})[:hH](\d{2}))|(\b\d{3,4}\b)', re.UNICODE)
+def _parse_hora_cell(x) -> str:
+    if isinstance(x, dt.time):
+        return f"{x.hour:02d}:{x.minute:02d}"
+    if isinstance(x, dt.datetime):
+        return f"{x.hour:02d}:{x.minute:02d}"
+    s = str(x or "").strip()
+    # primero, si hay patrón HH:MM:SS
+    mss = re.match(r'^(\d{1,2}):(\d{2}):\d{2}$', s)
+    if mss:
+        return f"{int(mss.group(1)):02d}:{int(mss.group(2)):02d}"
+    # luego, buscar primera hora válida en el texto
+    m = _HHMM_RE.search(s)
+    if m:
+        if m.group(1) and m.group(2):
+            hh = int(m.group(1))
+            mm = int(m.group(2))
+            return f"{hh:02d}:{mm:02d}"
+        if m.group(3):
+            raw = m.group(3)
+            if len(raw) == 3:
+                raw = "0" + raw
+            return f"{int(raw[:2]):02d}:{int(raw[2:]):02d}"
+    return _norm_hora(s)
+
+# Normaliza fecha: ISO, dd/mm/yyyy, fecha real de Sheets o serial Excel/Sheets
+def _norm_fecha_iso(x) -> str:
+    if x is None or x == "":
+        return ""
+    if isinstance(x, (dt.date, dt.datetime)):
+        return (x.date() if isinstance(x, dt.datetime) else x).isoformat()
+    s = str(x).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    if re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", s):
+        try:
+            d = dt.datetime.strptime(s, "%d/%m/%Y").date()
+            return d.isoformat()
+        except Exception:
+            pass
+    try:
+        d = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if pd.notna(d):
+            return d.date().isoformat()
+    except Exception:
+        pass
+    # Serial Excel/Sheets
+    try:
+        val = float(s)
+        base = dt.date(1899, 12, 30)
+        d = base + dt.timedelta(days=int(val))
+        return d.isoformat()
+    except Exception:
+        return s
+
+def hora_mas(h: str, minutos: int) -> str:
+    base = _norm_hora(h)
+    try:
+        t0 = dt.datetime.strptime(base, "%H:%M")
+        t1 = t0 + dt.timedelta(minutes=minutos)
+        return t1.strftime("%H:%M")
+    except Exception:
+        return base
+
 # ====== GOOGLE SHEETS ======
 import gspread
+from gspread.exceptions import WorksheetNotFound, APIError
 from google.oauth2.service_account import Credentials
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+# Usa ambos scopes (Sheets + Drive) en todas las rutas
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
 
 def _gc():
     info = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return gspread.authorize(creds)
 
-SHEET_ID = _SID or _SID_BLOCK
-
 def _open_sheet():
     gc = _gc()
-    url = st.secrets.get("SHEETS_SPREADSHEET_URL")
-    sid = st.secrets.get("SHEETS_SPREADSHEET_ID") or (st.secrets.get("sheets") or {}).get("sheet_id")
-    if url:
-        return gc.open_by_url(url)
-    elif sid:
-        return gc.open_by_key(sid)
-    else:
-        st.error("Falta SHEETS_SPREADSHEET_URL o SHEETS_SPREADSHEET_ID en secrets.")
+    # Forzamos ID (mejor que URL)
+    sheet_id = (
+        st.secrets.get("SHEETS_SPREADSHEET_ID")
+        or (st.secrets.get("sheets") or {}).get("sheet_id")
+        or None
+    )
+    if not sheet_id:
+        st.error("Falta SHEETS_SPREADSHEET_ID en secrets.")
         st.stop()
+    try:
+        return gc.open_by_key(sheet_id)
+    except gspread.exceptions.APIError as e:
+        st.error("No puedo abrir la hoja por ID (Google Sheets).")
+        st.code(f"""ID: {sheet_id}
+Service account: {st.secrets["gcp_service_account"].get("client_email","<sin_client_email>")}
+Excepción: {type(e).__name__}""")
+        st.info("Si la hoja está en **Unidad compartida**, añade la service account como **miembro de la Unidad** (no solo del archivo).")
+        st.stop()
+
+# ---- Cabeceras esperadas en inscripciones / waitlist ----
+_EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
+
+# ====== CARGA CACHEADA (TTL=60s) ======
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_ws_df_cached(sheet_name: str) -> pd.DataFrame:
+    """Lee una pestaña y la normaliza (cacheada). Evita 429."""
+    sh = _open_sheet()
+    ws = sh.worksheet(sheet_name)
+    vals = ws.get_all_values()
+    if not vals:
+        if sheet_name == "sesiones":
+            return pd.DataFrame(columns=["fecha_iso","hora","estado","estado_mini","estado_grande"])
+        return pd.DataFrame(columns=_EXPECTED_HEADERS)
+    headers = [h.strip() for h in vals[0]]
+    rows = vals[1:] if len(vals) > 1 else []
+    df = pd.DataFrame(rows, columns=headers) if headers else pd.DataFrame()
+
+    def _ensure_cols(df: pd.DataFrame) -> pd.DataFrame:
+        for c in _EXPECTED_HEADERS:
+            if c not in df.columns:
+                df[c] = ""
+        return df
+
+    # Normalizaciones por tipo de hoja
+    if sheet_name == "sesiones":
+        for c in ["fecha_iso","hora","estado","estado_mini","estado_grande"]:
+            if c not in df.columns:
+                df[c] = ""
+        df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
+        df["hora"] = df["hora"].map(_parse_hora_cell)
+        df["estado"] = df["estado"].replace("", "ABIERTA").str.upper()
+        df["estado_mini"] = df["estado_mini"].replace("", "ABIERTA").str.upper()
+        df["estado_grande"] = df["estado_grande"].replace("", "ABIERTA").str.upper()
+    else:
+        df = _ensure_cols(df)
+        df["fecha_iso"] = df["fecha_iso"].map(_norm_fecha_iso)
+        df["hora"] = df["hora"].map(_parse_hora_cell)
+        df["canasta"] = df["canasta"].astype(str).str.strip()
+    return df
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_all_data():
+    """Carga TODO una vez (sesiones, inscripciones, waitlist)."""
+    sh = _open_sheet()
+    # Asegura que existe 'sesiones' solo si falta (sin tocar si ya existe)
+    try:
+        ws = sh.worksheet("sesiones")
+        # Si la hoja existe pero es antigua (3 cols), asegura headers de 5 cols
+        headers = ws.row_values(1)
+        if len(headers) < 5:
+            ws.update("A1:E1", [["fecha_iso","hora","estado","estado_mini","estado_grande"]])
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title="sesiones", rows=100, cols=5)
+        ws.update("A1:E1", [["fecha_iso","hora","estado","estado_mini","estado_grande"]])
+
+    sesiones = _load_ws_df_cached("sesiones")
+    try:
+        ins = _load_ws_df_cached("inscripciones")
+    except WorksheetNotFound:
+        ins = pd.DataFrame(columns=_EXPECTED_HEADERS)
+    try:
+        wl = _load_ws_df_cached("waitlist")
+    except WorksheetNotFound:
+        wl = pd.DataFrame(columns=_EXPECTED_HEADERS)
+    return {"sesiones": sesiones, "ins": ins, "wl": wl}
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_familias_cached() -> pd.DataFrame:
@@ -245,44 +450,58 @@ def upsert_familia_y_hijo(codigo: str | None, tutor: str, telefono: str, email: 
     _load_hijos_cached.clear()
     return codigo
 
-@st.cache_data(ttl=15)
-def load_df(sheet_name: str) -> pd.DataFrame:
-    sh = _open_sheet()
-    ws = sh.worksheet(sheet_name)
-    data = ws.get_all_records()
-    return pd.DataFrame(data)
+# ===== app.py (2/5) =====
+# ====== HELPERS EN MEMORIA ======
+def get_sesiones_por_dia_cached() -> dict:
+    df = load_all_data()["sesiones"]
+    out = {}
+    for _, r in df.iterrows():
+        f = str(r["fecha_iso"]).strip()
+        if not f:
+            continue
+        item = {
+            "fecha_iso": f,
+            "hora": _parse_hora_cell(str(r.get("hora","")).strip() or "—"),
+            "estado": (str(r.get("estado","ABIERTA")).strip() or "ABIERTA").upper(),
+            "estado_mini": (str(r.get("estado_mini","ABIERTA")).strip() or "ABIERTA").upper(),
+            "estado_grande": (str(r.get("estado_grande","ABIERTA")).strip() or "ABIERTA").upper(),
+        }
+        out.setdefault(f, []).append(item)
+    return out
 
-def append_row(sheet_name: str, values: list):
-    """Añade la fila y, si falta la cabecera 'email', la crea al final de la fila 1."""
-    sh = _open_sheet()
-    ws = sh.worksheet(sheet_name)
-    headers = ws.row_values(1)
-    lowered = [h.strip().lower() for h in headers]
-    if "email" not in lowered:
-        ws.update_cell(1, len(headers) + 1, "email")
-    ws.append_row(values, value_input_option="USER_ENTERED")
+def get_sesion_info_mem(fecha_iso: str, hora: str) -> dict:
+    df = load_all_data()["sesiones"]
+    h = _parse_hora_cell(hora)
+    f = _norm_fecha_iso(fecha_iso)
+    m = df[(df["fecha_iso"] == f) & (df["hora"] == h)]
+    if not m.empty:
+        r = m.iloc[0].to_dict()
+        return {
+            "hora": _parse_hora_cell(r.get("hora","—")),
+            "estado": (str(r.get("estado","ABIERTA")) or "ABIERTA").upper(),
+            "estado_mini": (str(r.get("estado_mini","ABIERTA")) or "ABIERTA").upper(),
+            "estado_grande": (str(r.get("estado_grande","ABIERTA")) or "ABIERTA").upper(),
+        }
+    return {"hora": h, "estado": "ABIERTA", "estado_mini": "ABIERTA", "estado_grande": "ABIERTA"}
 
-def get_inscripciones_por_fecha(fecha_iso: str) -> list:
-    df = load_df("inscripciones")
-    if df.empty:
-        return []
-    need = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
-    for c in need:
-        if c not in df.columns:
-            df[c] = ""
-    return df[df["fecha_iso"] == fecha_iso][need].to_dict("records")
+def _inscripciones_mem(fecha_iso: str, hora: str) -> pd.DataFrame:
+    dfs = load_all_data()
+    f = _norm_fecha_iso(fecha_iso)
+    h = _parse_hora_cell(hora)
+    ins = dfs["ins"]
+    if ins.empty:
+        return ins
+    return ins[(ins["fecha_iso"] == f) & (ins["hora"] == h)]
 
-def get_waitlist_por_fecha(fecha_iso: str) -> list:
-    df = load_df("waitlist")
-    if df.empty:
-        return []
-    need = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
-    for c in need:
-        if c not in df.columns:
-            df[c] = ""
-    return df[df["fecha_iso"] == fecha_iso][need].to_dict("records")
+def _waitlist_mem(fecha_iso: str, hora: str) -> pd.DataFrame:
+    dfs = load_all_data()
+    f = _norm_fecha_iso(fecha_iso)
+    h = _parse_hora_cell(hora)
+    wl = dfs["wl"]
+    if wl.empty:
+        return wl
+    return wl[(wl["fecha_iso"] == f) & (wl["hora"] == h)]
 
-# ====== CAPACIDAD, DUPLICADOS ======
 def _match_canasta(valor: str, objetivo: str) -> bool:
     v = (valor or "").strip().lower()
     o = objetivo.strip().lower()
@@ -292,64 +511,187 @@ def _match_canasta(valor: str, objetivo: str) -> bool:
         return v.startswith("canasta")
     return v == o
 
-def plazas_ocupadas(fecha_iso: str, canasta: str) -> int:
-    ins = get_inscripciones_por_fecha(fecha_iso)
-    return sum(1 for r in ins if _match_canasta(r.get("canasta",""), canasta))
+def get_estado_grupo_mem(fecha_iso: str, hora: str, canasta: str) -> str:
+    info = get_sesion_info_mem(fecha_iso, hora)
+    # Si global cerrada -> todo cerrado
+    if (info.get("estado","ABIERTA") or "ABIERTA").upper() == "CERRADA":
+        return "CERRADA"
+    # Si el grupo está cerrado -> cerrado
+    if _match_canasta(canasta, CATEG_MINI):
+        return (info.get("estado_mini","ABIERTA") or "ABIERTA").upper()
+    return (info.get("estado_grande","ABIERTA") or "ABIERTA").upper()
 
-def plazas_libres(fecha_iso: str, canasta: str) -> int:
-    return max(0, MAX_POR_CANASTA - plazas_ocupadas(fecha_iso, canasta))
+def plazas_ocupadas_mem(fecha_iso: str, hora: str, canasta: str) -> int:
+    df_ins = _inscripciones_mem(fecha_iso, hora)
+    if df_ins.empty:
+        return 0
+    return sum(1 for _, r in df_ins.iterrows() if _match_canasta(r.get("canasta",""), canasta))
 
-def ya_existe_en_sesion(fecha_iso: str, nombre: str) -> str | None:
-    """Devuelve 'inscripciones' o 'waitlist' si el nombre ya existe en esa fecha."""
+def plazas_libres_mem(fecha_iso: str, hora: str, canasta: str) -> int:
+    # Respeta cierre por grupo + global
+    if get_estado_grupo_mem(fecha_iso, hora, canasta) == "CERRADA":
+        return 0
+    return max(0, MAX_POR_CANASTA - plazas_ocupadas_mem(fecha_iso, hora, canasta))
+
+def ya_existe_en_sesion_mem(fecha_iso: str, hora: str, nombre: str) -> str | None:
     nn = _norm_name(nombre)
-    for r in get_inscripciones_por_fecha(fecha_iso):
+    for _, r in _inscripciones_mem(fecha_iso, hora).iterrows():
         if _norm_name(r.get("nombre","")) == nn:
             return "inscripciones"
-    for r in get_waitlist_por_fecha(fecha_iso):
+    for _, r in _waitlist_mem(fecha_iso, hora).iterrows():
         if _norm_name(r.get("nombre","")) == nn:
             return "waitlist"
     return None
 
+# ====== ESCRITURAS CON BACKOFF + INVALIDACIÓN DE CACHÉ ======
+def _retry_gspread(call, *args, **kwargs):
+    last_exc = None
+    for i in range(5):
+        try:
+            return call(*args, **kwargs)
+        except APIError as e:
+            last_exc = e
+            msg = str(e)
+            # Backoff ante cuotas o 5xx
+            if "429" in msg or "quota" in msg.lower() or "500" in msg or "503" in msg:
+                time.sleep(1.5 * (2 ** i))
+                continue
+            raise
+    raise last_exc if last_exc else RuntimeError("Error desconocido en Google Sheets")
+
+def append_row(sheet_name: str, values: list):
+    sh = _open_sheet()
+    ws = sh.worksheet(sheet_name)
+    headers = ws.row_values(1)
+    if not headers:
+        _retry_gspread(ws.update, "A1:I1", [_EXPECTED_HEADERS])
+    _retry_gspread(ws.append_row, values, value_input_option="USER_ENTERED")
+    load_all_data.clear()  # invalidar cache para ver el cambio al instante
+
+SESIONES_SHEET = "sesiones"
+
+def upsert_sesion(fecha_iso: str, hora: str, estado: str = "ABIERTA", estado_mini: str = "ABIERTA", estado_grande: str = "ABIERTA"):
+    sh = _open_sheet()
+    try:
+        ws = sh.worksheet(SESIONES_SHEET)
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title="sesiones", rows=100, cols=5)
+        _retry_gspread(ws.update, "A1:E1", [["fecha_iso","hora","estado","estado_mini","estado_grande"]])
+
+    rows = _retry_gspread(ws.get_all_values)
+    if not rows:
+        _retry_gspread(ws.update, "A1:E1", [["fecha_iso","hora","estado","estado_mini","estado_grande"]])
+        rows = _retry_gspread(ws.get_all_values)
+
+    # Si headers antiguos (3 cols), actualizamos a 5
+    if rows and len(rows[0]) < 5:
+        _retry_gspread(ws.update, "A1:E1", [["fecha_iso","hora","estado","estado_mini","estado_grande"]])
+        rows = _retry_gspread(ws.get_all_values)
+
+    f_iso = _norm_fecha_iso(fecha_iso)
+    hora_n = _parse_hora_cell(hora)
+
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
+            _retry_gspread(ws.update, f"A{i}:E{i}", [[f_iso, hora_n, estado.upper(), estado_mini.upper(), estado_grande.upper()]])
+            load_all_data.clear()
+            return
+
+    _retry_gspread(ws.append_row, [f_iso, hora_n, estado.upper(), estado_mini.upper(), estado_grande.upper()], value_input_option="USER_ENTERED")
+    load_all_data.clear()
+
+def delete_sesion(fecha_iso: str, hora: str):
+    sh = _open_sheet()
+    try:
+        ws = sh.worksheet(SESIONES_SHEET)
+    except WorksheetNotFound:
+        return
+    rows = _retry_gspread(ws.get_all_values)
+    f_iso = _norm_fecha_iso(fecha_iso)
+    hora_n = _parse_hora_cell(hora)
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
+            _retry_gspread(ws.delete_rows, i)
+            load_all_data.clear()
+            return
+
+def set_estado_sesion(fecha_iso: str, hora: str, estado: str):
+    sh = _open_sheet()
+    try:
+        ws = sh.worksheet(SESIONES_SHEET)
+    except WorksheetNotFound:
+        return
+    rows = _retry_gspread(ws.get_all_values)
+    # headers antiguos -> upgrade
+    if rows and len(rows[0]) < 5:
+        _retry_gspread(ws.update, "A1:E1", [["fecha_iso","hora","estado","estado_mini","estado_grande"]])
+        rows = _retry_gspread(ws.get_all_values)
+
+    f_iso = _norm_fecha_iso(fecha_iso)
+    hora_n = _parse_hora_cell(hora)
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
+            _retry_gspread(ws.update_cell, i, 3, estado.upper())
+            load_all_data.clear()
+            return
+
+def set_estado_grupo(fecha_iso: str, hora: str, canasta: str, estado: str):
+    sh = _open_sheet()
+    try:
+        ws = sh.worksheet(SESIONES_SHEET)
+    except WorksheetNotFound:
+        return
+    rows = _retry_gspread(ws.get_all_values)
+    if not rows:
+        return
+    # headers antiguos -> upgrade
+    if len(rows[0]) < 5:
+        _retry_gspread(ws.update, "A1:E1", [["fecha_iso","hora","estado","estado_mini","estado_grande"]])
+        rows = _retry_gspread(ws.get_all_values)
+
+    f_iso = _norm_fecha_iso(fecha_iso)
+    hora_n = _parse_hora_cell(hora)
+    col = 4 if _match_canasta(canasta, CATEG_MINI) else 5  # D mini / E grande
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) >= 2 and _norm_fecha_iso(row[0]) == f_iso and _parse_hora_cell(row[1]) == hora_n:
+            _retry_gspread(ws.update_cell, i, col, estado.upper())
+            load_all_data.clear()
+            return
+# ===== app.py (3/5) =====
 # ====== PDF: JUSTIFICANTE INDIVIDUAL ======
 def crear_justificante_pdf(datos: dict) -> BytesIO:
-    """Genera un justificante individual (confirmada o lista de espera)."""
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
     from reportlab.lib.units import cm
-    from reportlab.lib import colors
+    from reportlab.lib import colors as _colors
 
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
-
     x = 2*cm
     y = height - 2*cm
 
     status_ok = (datos.get("status") == "ok")
     titulo = "Justificante de inscripción" if status_ok else "Justificante - Lista de espera"
 
-    # Cabecera
     c.setFont("Helvetica-Bold", 16)
     c.drawString(x, y, titulo)
     y -= 0.8*cm
-
     c.setFont("Helvetica", 11)
     c.drawString(x, y, f"Sesión: {datos.get('fecha_txt','—')}  ·  Hora: {datos.get('hora','—')}")
     y -= 0.5*cm
     c.drawString(x, y, f"Estado: {'CONFIRMADA' if status_ok else 'LISTA DE ESPERA'}")
     y -= 0.8*cm
 
-    # Datos
     c.setFont("Helvetica", 10)
-    filas = [
+    for label, value in [
         ("Jugador", datos.get("nombre","—")),
         ("Canasta", datos.get("canasta","—")),
         ("Categoría/Equipo", datos.get("equipo","—")),
         ("Tutor", datos.get("tutor","—")),
         ("Teléfono", datos.get("telefono","—")),
         ("Email", datos.get("email","—")),
-    ]
-    for label, value in filas:
+    ]:
         c.drawString(x, y, f"{label}:")
         c.setFont("Helvetica-Bold", 10)
         c.drawString(x + 4.2*cm, y, value)
@@ -358,8 +700,10 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
 
     y -= 0.4*cm
     c.setFont("Helvetica-Oblique", 9)
-    c.setFillColor(colors.grey)
+    c.setFillColor(_colors.grey)
     c.drawString(x, y, "Conserve este justificante como comprobante de su reserva.")
+    c.setFillColor(_colors.black)
+
     # ... después del texto de "Conserve este justificante..."
     y -= 0.6*cm
     family_code = to_text(datos.get("family_code","")).strip()
@@ -368,186 +712,122 @@ def crear_justificante_pdf(datos: dict) -> BytesIO:
         c.setFont("Helvetica-Bold", 10)
         c.drawString(x, y, f"Código de familia (para autorrelleno): {family_code}")
 
-    c.setFillColor(colors.black)
+    # ------- Canales de WhatsApp en el PDF -------
+    y -= 1*cm
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x, y, "Canales de comunicación:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+
+    # Canal general
+    if CANAL_GENERAL_URL:
+        c.drawString(x, y, "General: ")
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(x + 3*cm, y, CANAL_GENERAL_URL)
+        y -= 0.5*cm
+        c.setFont("Helvetica", 10)
+
+    # Canal por categoría
+    canasta_pdf = (datos.get("canasta", "") or "").lower()
+
+    if "mini" in canasta_pdf and CANAL_MINI_URL:
+        c.drawString(x, y, "Minibasket: ")
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(x + 3*cm, y, CANAL_MINI_URL)
+        y -= 0.5*cm
+        c.setFont("Helvetica", 10)
+    elif "canasta" in canasta_pdf and CANAL_GRANDE_URL:
+        c.drawString(x, y, "Canasta grande: ")
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(x + 3*cm, y, CANAL_GRANDE_URL)
+        y -= 0.5*cm
+        c.setFont("Helvetica", 10)
 
     c.showPage()
     c.save()
     buf.seek(0)
     return buf
 
-# ====== PDF: LISTADOS SESIÓN (con email en 2ª línea) ======
-def crear_pdf_sesion(fecha_iso: str) -> BytesIO:
-    """Genera un PDF con inscripciones y lista de espera (separadas por categoría)."""
+# ====== PDF: LISTADOS SESIÓN (INSCRIPCIONES + ESPERA) ======
+def crear_pdf_sesion(fecha_iso: str, hora: str) -> BytesIO:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
     from reportlab.lib.units import cm
-    from reportlab.pdfbase.pdfmetrics import stringWidth
 
-    d = dt.date.fromisoformat(fecha_iso)
-    lista = get_inscripciones_por_fecha(fecha_iso)
-    wl = get_waitlist_por_fecha(fecha_iso)
+    d = pd.to_datetime(_norm_fecha_iso(fecha_iso)).date()
+    hora = _parse_hora_cell(hora)
+
+    lista = _inscripciones_mem(fecha_iso, hora).to_dict("records")
+    wl = _waitlist_mem(fecha_iso, hora).to_dict("records")
 
     ins_mini = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_MINI)]
     ins_gran = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
-    wl_mini  = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_MINI)]
-    wl_gran  = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
 
-    # hora
-    hora = SESIONES.get(fecha_iso, "—")
-    if lista:
-        hora = lista[0].get("hora", hora) or hora
-    elif wl:
-        hora = wl[0].get("hora", hora) or hora
+    info_s = get_sesion_info_mem(fecha_iso, hora)
+    hora_lbl = info_s.get("hora","—")
 
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
 
-    # Cabecera
     fecha_txt = d.strftime("%A, %d %B %Y").capitalize()
     y = height - 2*cm
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(2*cm, y, f"Tecnificación Baloncesto — {fecha_txt} {hora}")
+    c.drawString(2*cm, y, f"Tecnificación Baloncesto — {fecha_txt} {hora_lbl}")
     y -= 0.8*cm
     c.setFont("Helvetica", 11)
     c.drawString(2*cm, y, f"Capacidad por categoría: {MAX_POR_CANASTA} | Mini: {len(ins_mini)} | Grande: {len(ins_gran)}")
     y -= 1.0*cm
 
-    # Utils texto
-    def fit_text(ca, text, max_w, font="Helvetica", size=10):
-        if not text: 
-            return ""
-        if stringWidth(text, font, size) <= max_w:
-            return text
-        ell = "…"
-        ell_w = stringWidth(ell, font, size)
-        t = text
-        while t and stringWidth(t, font, size) + ell_w > max_w:
-            t = t[:-1]
-        return t + ell
+    def fit_text(text, max_chars=35):
+        text = to_text(text)
+        return text if len(text) <= max_chars else text[:max_chars-1] + "…"
 
-    # Márgenes y columnas
-    left   = 2.0*cm
-    right  = width - 2.0*cm
-    x_num  = left
-    x_name = left + 0.9*cm
-    x_cat  = left + 11.0*cm
-    x_team = left + 14.0*cm
+    left = 2.0*cm
+    right = width - 2.0*cm
+    line = 0.55*cm
+    min_margin = 2.0*cm
 
-    # Segunda línea (debajo de cada columna):
-    # - Email debajo de NOMBRE
-    # - Teléfono debajo de CANASTA
-    # - Tutor debajo de EQUIPO
-    x_email = x_name
-    x_tel   = x_cat
-    x_tutor = x_team
-
-    # Anchos máximos
-    w_name  = (x_cat  - x_name) - 0.2*cm
-    w_cat   = (x_team - x_cat)  - 0.2*cm
-    w_team  = (right  - x_team)
-
-    w_email = (x_cat  - x_email) - 0.3*cm
-    w_tel   = (x_team - x_tel)   - 0.3*cm
-    w_tutor = (right  - x_tutor)
-
-    # Espaciado vertical
-    line_spacing        = 0.46*cm
-    separator_offset    = 0.30*cm
-    post_separator_gap  = 0.50*cm
-    min_margin          = 3.0*cm
-
-    def redraw_headers(y_cur, titulo=""):
-        c.setFont("Helvetica-Bold", 11)
-        if titulo:
-            c.drawString(left, y_cur, titulo)
-            y_cur -= 0.5*cm
+    def header(title, y):
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(left, y, title)
+        y -= 0.6*cm
         c.setFont("Helvetica", 10)
-        c.drawString(x_num,  y_cur, "#")
-        c.drawString(x_name, y_cur, "Nombre (jugador)")
-        c.drawString(x_cat,  y_cur, "Canasta")
-        c.drawString(x_team, y_cur, "Equipo")
-        y2 = y_cur - 0.35*cm
-        c.line(left, y2, right, y2)
-        return y2 - 0.35*cm
-
-    def pintar_lista(registros, titulo, y, start_idx=1):
-        if not registros:
-            c.setFont("Helvetica", 10)
-            c.drawString(left, y, f"— Sin inscripciones en {titulo.lower()} —")
-            return y - 0.6*cm
-
-        y = redraw_headers(y, f"{titulo}:")
-        for i, r in enumerate(registros, start=start_idx):
-            required_height = line_spacing + separator_offset + post_separator_gap
-            if y - required_height < min_margin:
-                c.showPage()
-                y = height - 2*cm
-                y = redraw_headers(y, f"{titulo}:")
-
-            nombre = to_text(r.get("nombre",""))
-            cat    = to_text(r.get("canasta",""))
-            team   = to_text(r.get("equipo",""))
-            tutor  = to_text(r.get("tutor",""))
-            tel    = to_text(r.get("telefono",""))
-            email  = to_text(r.get("email",""))
-
-            # Línea 1
-            c.setFont("Helvetica", 10)
-            c.drawString(x_num,  y, to_text(i))
-            c.drawString(x_name, y, fit_text(c, nombre, w_name))
-            c.drawString(x_cat,  y, fit_text(c, cat,   w_cat))
-            c.drawString(x_team, y, fit_text(c, team,  w_team))
-
-            # Línea 2
-            y -= line_spacing
-            c.setFont("Helvetica", 9)
-            c.drawString(x_email, y, "Email: " + fit_text(c, email, w_email, size=9))
-            c.drawString(x_tel,   y, "Tel.: "  + fit_text(c, tel,   w_tel,   size=9))
-            c.drawString(x_tutor, y, "Tutor: " + fit_text(c, tutor, w_tutor))
-
-            # Separador + aire extra
-            y -= separator_offset
-            c.setLineWidth(0.3)
-            c.setDash(1, 2)
-            c.line(left, y, right, y)
-            c.setDash()
-            c.setLineWidth(1)
-            y -= post_separator_gap
+        c.drawString(left, y, "#  Nombre (jugador)  |  Canasta  |  Equipo  |  Tutor  |  Teléfono")
+        y -= 0.4*cm
+        c.line(left, y, right, y)
+        y -= 0.4*cm
         return y
 
-    # --- Inscripciones ---
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(left, y, "Inscripciones confirmadas:")
+    def draw_list(rows, y, start=1):
+        if not rows:
+            c.setFont("Helvetica", 10)
+            c.drawString(left, y, "— Vacío —")
+            return y - 0.6*cm
+        for i, r in enumerate(rows, start=start):
+            if y < min_margin:
+                c.showPage()
+                y = height - 2*cm
+            c.setFont("Helvetica", 10)
+            text = f"{i}. {fit_text(r.get('nombre'))} | {fit_text(r.get('canasta'),18)} | {fit_text(r.get('equipo'),22)} | {fit_text(r.get('tutor'),18)} | {fit_text(r.get('telefono'),12)}"
+            c.drawString(left, y, text)
+            y -= line
+        return y
+
+    # Confirmadas
+    y = header("Inscripciones confirmadas — Canasta grande", y)
+    y = draw_list([r for r in lista if _match_canasta(r.get("canasta",""), CATEG_GRANDE)], y, start=1)
+    y -= 0.6*cm
+    y = header("Inscripciones confirmadas — Minibasket", y)
+    y = draw_list([r for r in lista if _match_canasta(r.get("canasta",""), CATEG_MINI)], y, start=1)
+
+    # Espera
     y -= 0.8*cm
-
-    grande = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
-    mini   = [r for r in lista if _match_canasta(r.get("canasta",""), CATEG_MINI)]
-
-    if not lista:
-        c.setFont("Helvetica", 10)
-        c.drawString(left, y, "— Sin inscripciones —")
-        y -= 0.6*cm
-    else:
-        y = pintar_lista(grande, "Canasta grande", y, start_idx=1)
-        y = pintar_lista(mini,   "Minibasket",    y, start_idx=len(grande)+1)
-
-    # --- Lista de espera ---
-    y -= 1*cm
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(left, y, "Lista de espera:")
-    y -= 0.8*cm
-
-    grande_wl = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_GRANDE)]
-    mini_wl   = [r for r in wl if _match_canasta(r.get("canasta",""), CATEG_MINI)]
-
-    if not wl:
-        c.setFont("Helvetica", 10)
-        c.drawString(left, y, "— Vacía —")
-        y -= 0.6*cm
-    else:
-        y = pintar_lista(grande_wl, "Canasta grande", y, start_idx=1)
-        y = pintar_lista(mini_wl,   "Minibasket",    y, start_idx=len(grande_wl)+1)
+    y = header("Lista de espera — Canasta grande", y)
+    y = draw_list([r for r in wl if _match_canasta(r.get("canasta",""), CATEG_GRANDE)], y, start=1)
+    y -= 0.6*cm
+    y = header("Lista de espera — Minibasket", y)
+    y = draw_list([r for r in wl if _match_canasta(r.get("canasta",""), CATEG_MINI)], y, start=1)
 
     c.showPage()
     c.save()
@@ -562,7 +842,7 @@ if "is_admin" not in st.session_state:
 params = st.query_params
 show_admin_login = params.get(ADMIN_QUERY_FLAG, ["0"])
 show_admin_login = (isinstance(show_admin_login, list) and (show_admin_login[0] == "1")) or (show_admin_login == "1")
-
+# ===== app.py (4/5) =====
 if show_admin_login:
     # ====== SOLO ADMIN ======
     st.title("🛠️ Panel de administración")
@@ -578,50 +858,236 @@ if show_admin_login:
             else:
                 st.error("Contraseña incorrecta.")
     else:
-        # Panel admin real
-        df_all_ins = load_df("inscripciones")
-        df_all_wl  = load_df("waitlist")
-        fechas_con_datos = sorted(set(df_all_ins.get("fecha_iso", []))
-                                  .union(set(df_all_wl.get("fecha_iso", []))))
+        # 🔄 Botón de refresco SOLO visible a admin autenticada (por si se quiere forzar)
+        with st.sidebar:
+            if st.button("🔄 Refrescar datos (limpiar caché)"):
+                st.cache_data.clear()
+                load_all_data.clear()
+                st.success("Caché limpiada.")
 
-        if not fechas_con_datos:
-            st.info("Aún no hay sesiones con datos.")
-        else:
-            opciones = {f: f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {SESIONES.get(f,'—')}"
-                        for f in fechas_con_datos}
-            fkey_admin = st.selectbox("Selecciona sesión", options=fechas_con_datos,
-                                      format_func=lambda x: opciones.get(x, x))
-
-            ins_f = get_inscripciones_por_fecha(fkey_admin)
-            wl_f  = get_waitlist_por_fecha(fkey_admin)
-            df_show = pd.DataFrame(ins_f)
-            df_wl   = pd.DataFrame(wl_f)
-
-            st.write("**Inscripciones:**")
-            if df_show.empty:
-                st.write("— Sin inscripciones —")
+        dfs = load_all_data()
+        df_ses_all = dfs["sesiones"].copy()
+        
+        # Aviso si está vacío, pero NO bloquea el resto del panel
+        if df_ses_all.empty:
+            st.info("Aún no hay sesiones creadas.")
+        
+        # ===== Tabla de inscripciones / espera por sesión (solo si hay sesiones) =====
+        if not df_ses_all.empty:
+            df_ses_listables = df_ses_all[df_ses_all["estado"].isin(["ABIERTA", "CERRADA"])].copy()
+        
+            if df_ses_listables.empty:
+                st.info("No hay sesiones en estado ABIERTA o CERRADA.")
             else:
-                st.dataframe(df_show, use_container_width=True)
-
-            st.write("**Lista de espera:**")
-            if df_wl.empty:
-                st.write("— Vacía —")
-            else:
-                st.dataframe(df_wl, use_container_width=True)
-
-            # Botón PDF sesión
-            if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
                 try:
-                    pdf = crear_pdf_sesion(fkey_admin)
-                    st.download_button(
-                        label="Descargar PDF",
-                        data=pdf,
-                        file_name=f"sesion_{fkey_admin}.pdf",
-                        mime="application/pdf"
-                    )
-                except ModuleNotFoundError:
-                    st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
+                    df_ses_listables["__f"] = pd.to_datetime(df_ses_listables["fecha_iso"])
+                    df_ses_listables = df_ses_listables.sort_values(["__f","hora"]).drop(columns="__f")
+                except Exception:
+                    pass
+        
+                fechas_horas = list(dict.fromkeys([
+                    (r["fecha_iso"], _parse_hora_cell(r["hora"]))
+                    for _, r in df_ses_listables.iterrows()
+                ]))
+        
+                opciones = {
+                    (f, h): f"{dt.datetime.strptime(f,'%Y-%m-%d').strftime('%d/%m/%Y')}  ·  {h}  ·  GLOBAL: {get_sesion_info_mem(f,h).get('estado','—')} | MINI: {get_sesion_info_mem(f,h).get('estado_mini','—')} | GRANDE: {get_sesion_info_mem(f,h).get('estado_grande','—')}"
+                    for (f, h) in fechas_horas
+                }
+        
+                f_h_admin = st.selectbox(
+                    "Selecciona sesión (fecha + hora)",
+                    options=fechas_horas,
+                    format_func=lambda t: opciones.get(t, f"{t[0]} · {t[1]}")
+                )
+        
+                f_sel, h_sel = f_h_admin
+                ins_f = _inscripciones_mem(f_sel, h_sel).to_dict("records")
+                wl_f = _waitlist_mem(f_sel, h_sel).to_dict("records")
+                df_show = pd.DataFrame(ins_f)
+                df_wl = pd.DataFrame(wl_f)
+        
+                st.write("**Inscripciones:**")
+                st.dataframe(df_show if not df_show.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
+        
+                st.write("**Lista de espera:**")
+                st.dataframe(df_wl if not df_wl.empty else pd.DataFrame(columns=["—"]), use_container_width=True)
+        
+                if st.button("🧾 Generar PDF (inscripciones + lista de espera)"):
+                    try:
+                        pdf = crear_pdf_sesion(f_sel, h_sel)
+                        st.download_button(
+                            label="Descargar PDF",
+                            data=pdf,
+                            file_name=f"sesion_{f_sel}_{_parse_hora_cell(h_sel)}.pdf",
+                            mime="application/pdf"
+                        )
+                    except ModuleNotFoundError:
+                        st.error("Falta el paquete 'reportlab'. Añádelo a requirements.txt (línea: reportlab).")
+        
+                st.divider()
+                st.subheader("🧾 Justificante individual (Admin)")
+                # (tu bloque de justificante individual aquí, tal cual)
+        
+        # ==========================
+        # 🗓️ GESTIÓN DE SESIONES (SIEMPRE VISIBLE)
+        # ==========================
+        st.divider()
+        st.subheader("🗓️ Gestión de sesiones")
+        
+        # --- 1) AÑADIR SESIÓN (GLOBAL ABIERTA) ---
+        with st.form("form_add_sesion_admin", clear_on_submit=True):
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                fecha_nueva = st.date_input("Fecha", value=dt.date.today())
+            with c2:
+                hora_nueva = st.text_input("Hora (HH:MM)", value="09:30")
+        
+            submitted = st.form_submit_button("➕ Añadir sesión (GLOBAL ABIERTA)")
+            if submitted:
+                f_iso = _norm_fecha_iso(fecha_nueva)
+                upsert_sesion(
+                    f_iso,
+                    hora_nueva,
+                    estado="ABIERTA",
+                    estado_mini="ABIERTA",
+                    estado_grande="ABIERTA"
+                )
+                st.success(f"Sesión {f_iso} {_parse_hora_cell(hora_nueva)} añadida/actualizada (GLOBAL ABIERTA).")
+                st.rerun()
+        
+        # --- Tabla + eliminar sesión (solo si hay sesiones) ---
+        df_ses = load_all_data()["sesiones"].copy()
+        if df_ses.empty:
+            st.info("No hay sesiones creadas todavía.")
+        else:
+            try:
+                df_ses["__f"] = pd.to_datetime(df_ses["fecha_iso"])
+                df_ses["hora"] = df_ses["hora"].apply(_parse_hora_cell)
+                df_ses = df_ses.sort_values(["__f","hora"]).drop(columns="__f")
+            except Exception:
+                pass
+        
+            st.dataframe(df_ses, use_container_width=True)
+        
+            st.markdown("#### 🗑️ Eliminar sesión")
+        
+            opciones_ses = [(r["fecha_iso"], _parse_hora_cell(r["hora"])) for _, r in df_ses.iterrows()]
+            opciones_ses = list(dict.fromkeys(opciones_ses))
+        
+            fdel, hdel = st.selectbox(
+                "Selecciona sesión a eliminar",
+                options=opciones_ses,
+                format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_parse_hora_cell(t[1])}",
+                key="sel_delete_session"
+            )
+        
+            if st.button("🗑️ Eliminar sesión (GLOBAL)", use_container_width=True):
+                delete_sesion(fdel, hdel)
+                st.warning(f"Sesión {fdel} {hdel} eliminada.")
+                st.rerun()
+        
+        # ==========================
+        # ⚡ ACCIÓN RÁPIDA (solo si hay sesiones)
+        # ==========================
+        st.divider()
+        st.subheader("⚡ Acción rápida")
+        
+        df_ses2 = load_all_data()["sesiones"].copy()
+        if df_ses2.empty:
+            st.info("No hay sesiones para modificar.")
+        else:
+            # (tu bloque de acción rápida tal cual)
+            try:
+                df_ses2["__f"] = pd.to_datetime(df_ses2["fecha_iso"])
+                df_ses2["hora"] = df_ses2["hora"].apply(_parse_hora_cell)
+                df_ses2 = df_ses2.sort_values(["__f","hora"]).drop(columns="__f")
+            except Exception:
+                pass
+        
+            opciones = [(r["fecha_iso"], _parse_hora_cell(r["hora"])) for _, r in df_ses2.iterrows()]
+            opciones = list(dict.fromkeys(opciones))
+        
+            fsel, hsel = st.selectbox(
+                "Selecciona sesión",
+                options=opciones,
+                format_func=lambda t: f"{dt.datetime.strptime(t[0],'%Y-%m-%d').strftime('%d/%m/%Y')} · {_parse_hora_cell(t[1])}",
+                key="sel_action_session"
+            )
+        
+            # Estados actuales (para mostrar acciones solo si aplican)
+            info = get_sesion_info_mem(fsel, hsel)
+            estado_global = (info.get("estado","ABIERTA") or "ABIERTA").upper()
+            estado_mini = (info.get("estado_mini","ABIERTA") or "ABIERTA").upper()
+            estado_grande = (info.get("estado_grande","ABIERTA") or "ABIERTA").upper()
+        
+            # Opciones base (siempre disponibles)
+            acciones = [
+                "— Selecciona —",
+                "Cerrar solo Minibasket",
+                "Cerrar solo Canasta grande",
+                "Cerrar sesión completa (GLOBAL)",
+            ]
+        
+            # Opciones de reabrir SOLO si hace falta
+            if estado_global == "CERRADA":
+                acciones.append("Reabrir sesión completa (GLOBAL)")
+            if estado_mini == "CERRADA":
+                acciones.append("Reabrir solo Minibasket")
+            if estado_grande == "CERRADA":
+                acciones.append("Reabrir solo Canasta grande")
+        
+            accion = st.selectbox(
+                "Elige acción",
+                options=acciones,
+                index=0,
+                key="sel_action"
+            )
+        
+            colA, colB = st.columns([1, 2])
+            with colA:
+                aplicar = st.button("✅ Aplicar", use_container_width=True)
+            with colB:
+                st.caption("Cerrar GLOBAL bloquea ambos grupos. Reabrir un grupo pone GLOBAL ABIERTA para que tenga efecto.")
+        
+            if aplicar:
+                if accion == "— Selecciona —":
+                    st.warning("Selecciona una acción primero.")
+        
+                elif accion == "Cerrar solo Minibasket":
+                    set_estado_grupo(fsel, hsel, CATEG_MINI, "CERRADA")
+                    st.warning("Minibasket CERRADA.")
+                    st.rerun()
+        
+                elif accion == "Cerrar solo Canasta grande":
+                    set_estado_grupo(fsel, hsel, CATEG_GRANDE, "CERRADA")
+                    st.warning("Canasta grande CERRADA.")
+                    st.rerun()
+        
+                elif accion == "Cerrar sesión completa (GLOBAL)":
+                    set_estado_sesion(fsel, hsel, "CERRADA")
+                    st.warning("Sesión cerrada (GLOBAL).")
+                    st.rerun()
+        
+                elif accion == "Reabrir sesión completa (GLOBAL)":
+                    set_estado_sesion(fsel, hsel, "ABIERTA")
+                    st.success("Sesión ABIERTA (GLOBAL).")
+                    st.rerun()
+        
+                elif accion == "Reabrir solo Minibasket":
+                    set_estado_sesion(fsel, hsel, "ABIERTA")  # por si global estaba cerrada
+                    set_estado_grupo(fsel, hsel, CATEG_MINI, "ABIERTA")
+                    st.success("Minibasket ABIERTA.")
+                    st.rerun()
+        
+                elif accion == "Reabrir solo Canasta grande":
+                    set_estado_sesion(fsel, hsel, "ABIERTA")
+                    set_estado_grupo(fsel, hsel, CATEG_GRANDE, "ABIERTA")
+                    st.success("Canasta grande ABIERTA.")
+                    st.rerun()
+        
 
+# ===== app.py (PANEL USUARIO ACTUALIZADO) =====
 # ===== app.py (PANEL USUARIO ACTUALIZADO) =====
 else:
     # ====== SOLO USUARIO NORMAL ======
@@ -714,7 +1180,7 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             padding: 2px 6px;
             background-color: #ffffff;
             color: navy !important;
-            font-weight: bold.
+            font-weight: bold;
         }
         .fc-toolbar-title::first-letter { text-transform: uppercase; }
         """
@@ -792,20 +1258,24 @@ Revisa los campos obligatorios o vuelve a intentarlo.
     ok_data_key = f"ok_data_{fkey}_{hkey}"
     celebrate_key = f"celebrate_{fkey}_{hkey}"
 
-    # Si YA hay una inscripción correcta en esta sesión para este navegador
+    # ------------------------------------------------------------------
+    # ✅ 1) TARJETA DE ÉXITO (si ya reservó)
+    # ------------------------------------------------------------------
     if st.session_state.get(ok_flag):
         data = st.session_state.get(ok_data_key, {})
+
         with placeholder.container():
             if data.get("status") == "ok":
                 st.success("✅ Inscripción realizada correctamente")
             else:
                 st.info("ℹ️ Te hemos añadido a la lista de espera")
 
-            # Mostrar código si existe (importante para que lo recuperen)
             if data.get("family_code"):
-                st.info(f"🔐 **Tu código de familia:** `{data.get('family_code')}`\n\nGuárdalo: te servirá para autorrellenar próximas veces.")
+                st.info(
+                    f"🔐 **Tu código de familia:** `{data.get('family_code')}`\n\n"
+                    "Guárdalo: te servirá para autorrellenar próximas veces."
+                )
 
-            # Solo canales por categoría aquí
             canasta_data = (data.get("canasta", "") or "").lower()
             if "mini" in canasta_data and CANAL_MINI_URL:
                 st.info(
@@ -834,7 +1304,11 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             st.download_button(
                 label="⬇️ Descargar justificante (PDF)",
                 data=pdf,
-                file_name=f"justificante_{data.get('fecha_iso','')}_{_norm_name(data.get('nombre','')).replace(' ','_')}_{_parse_hora_cell(data.get('hora','')).replace(':','')}.pdf",
+                file_name=(
+                    f"justificante_{data.get('fecha_iso','')}_"
+                    f"{_norm_name(data.get('nombre','')).replace(' ','_')}_"
+                    f"{_parse_hora_cell(data.get('hora','')).replace(':','')}.pdf"
+                ),
                 mime="application/pdf",
                 key=f"dl_btn_{fkey}_{hkey}"
             )
@@ -845,14 +1319,18 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
                 st.rerun()
 
+        # ------------------------------------------------------------------
+        # ✅ 2) CELEBRACIÓN (FUERA y SIN else)
+        # ------------------------------------------------------------------
         if st.session_state.pop(celebrate_key, False) and data.get("status") == "ok":
             st.toast("✅ Inscripción realizada correctamente", icon="✅")
             st.balloons()
 
+    # ------------------------------------------------------------------
+    # ✅ 3) FORMULARIO (si NO hay ok_flag)
+    # ------------------------------------------------------------------
     else:
-        # ==========================
-        # AUTORRELLENO POR CÓDIGO (FUERA DEL FORM)
-        # ==========================
+        # ---- Autorrelleno seguro por código ----
         codigo_cookie = (cookies.get("family_code") or "").strip()
 
         st.markdown("### 🔐 Autorrellenar (opcional)")
@@ -888,8 +1366,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                 st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                 st.session_state[f"autofilled_{fkey}_{hkey}"] = True
-
-        if st.button("✨ Autorrellenar con código", key=f"autofill_btn_{fkey}_{hkey}"):
+        
+        if st.button("Usar este código", key=f"autofill_btn_{fkey}_{hkey}"):
             fam = get_familia_por_codigo(codigo_familia)
             if not fam:
                 st.error("Código no válido (o no encontrado).")
@@ -906,49 +1384,131 @@ Revisa los campos obligatorios o vuelve a intentarlo.
 
                 st.success("Datos cargados.")
                 st.rerun()
-
+                
+        # ==========================
+        # ⚡ RESERVA RÁPIDA (NO QUITA EL FORMULARIO)
+        # ==========================
         hijos_cargados = st.session_state.get(f"hijos_{fkey}_{hkey}", [])
         if hijos_cargados:
             def _fmt_h(r):
                 return f"{to_text(r.get('jugador','—'))} · {to_text(r.get('equipo','—'))} · {to_text(r.get('canasta','—'))}"
-
+            
             sel_h = st.selectbox(
                 "Selecciona jugador guardado",
                 options=hijos_cargados,
                 format_func=_fmt_h,
                 key=f"selh_{fkey}_{hkey}"
             )
-
-            if st.button("✅ Usar este jugador", key=f"useh_{fkey}_{hkey}"):
-                st.session_state[f"nombre_{fkey}_{hkey}"] = to_text(sel_h.get("jugador", ""))
-                eq = to_text(sel_h.get("equipo", "")).strip()
-                if eq in EQUIPOS_OPCIONES:
-                    st.session_state[f"equipo_sel_{fkey}_{hkey}"] = eq
-                    st.session_state[f"equipo_otro_{fkey}_{hkey}"] = ""
+        
+            # Botón que RESERVA DIRECTO
+            if st.button("⚡ Reservar con este jugador", key=f"reserveh_{fkey}_{hkey}", use_container_width=True):
+                # --- Datos del jugador guardado ---
+                nombre_h = to_text(sel_h.get("jugador", "")).strip()
+                equipo_h = to_text(sel_h.get("equipo", "")).strip()
+                canasta_h = to_text(sel_h.get("canasta", "")).strip()
+        
+                # --- Datos tutor (de session_state ya autorrellenados por el código) ---
+                tutor_h = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip() or "—"
+                telefono_h = to_text(st.session_state.get(f"telefono_{fkey}_{hkey}", "")).strip()
+                email_h = to_text(st.session_state.get(f"email_{fkey}_{hkey}", "")).strip() or "—"
+        
+                # --- Validaciones mínimas ---
+                if not nombre_h:
+                    st.error("No se pudo leer el nombre del jugador guardado.")
+                    st.stop()
+        
+                if not telefono_h or (not str(telefono_h).isdigit()):
+                    st.error("Falta un teléfono válido guardado para esta familia. Pulsa 'Autorrellenar con código' y revisa los datos.")
+                    st.stop()
+        
+                # Normaliza canasta guardada a tus constantes (por si viene con variantes)
+                canasta_h_low = canasta_h.lower()
+                if "mini" in canasta_h_low:
+                    canasta_final = CATEG_MINI
+                elif "canasta" in canasta_h_low or "grande" in canasta_h_low:
+                    canasta_final = CATEG_GRANDE
                 else:
-                    st.session_state[f"equipo_sel_{fkey}_{hkey}"] = "Otro"
-                    st.session_state[f"equipo_otro_{fkey}_{hkey}"] = eq
-                st.success("Jugador seleccionado.")
-                st.rerun()
-
-        st.divider()
-
+                    st.error("El jugador guardado no tiene canasta válida (Minibasket / Canasta grande).")
+                    st.stop()
+        
+                # La sesión global puede estar cerrada
+                info_s = get_sesion_info_mem(fkey, hkey)
+                estado_global = (info_s.get("estado", "ABIERTA") or "ABIERTA").upper()
+                if estado_global == "CERRADA":
+                    st.error("Esta sesión está CERRADA (GLOBAL).")
+                    st.stop()
+        
+                # La canasta puede estar cerrada por admin
+                if get_estado_grupo_mem(fkey, hkey, canasta_final) == "CERRADA":
+                    st.error(f"{canasta_final} está CERRADA para esta sesión. Reserva desde el formulario eligiendo la otra canasta.")
+                    st.stop()
+        
+                # Evitar duplicados
+                ya = ya_existe_en_sesion_mem(fkey, hkey, nombre_h)
+                if ya == "inscripciones":
+                    st.error("❌ Este jugador ya está inscrito en esta sesión.")
+                    st.stop()
+                if ya == "waitlist":
+                    st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
+                    st.stop()
+        
+                # Si el equipo guardado no está en la lista, lo mandamos como "Otro" (pero igualmente reservamos)
+                equipo_val = equipo_h or "—"
+        
+                # Construimos fila
+                row = [
+                    dt.datetime.now().isoformat(timespec="seconds"),
+                    fkey,
+                    hora_sesion,               # OJO: usa tu hora ya calculada arriba
+                    nombre_h,
+                    canasta_final,
+                    equipo_val,
+                    tutor_h,
+                    telefono_h,
+                    email_h
+                ]
+        
+                # Reserva / waitlist según plazas
+                libres_cat = plazas_libres_mem(fkey, hkey, canasta_final)
+                if libres_cat <= 0:
+                    append_row("waitlist", row)
+                    st.session_state[ok_flag] = True
+                    st.session_state[ok_data_key] = {
+                        "status": "wait",
+                        "fecha_iso": fkey,
+                        "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
+                        "hora": hora_sesion,
+                        "nombre": nombre_h,
+                        "canasta": canasta_final,
+                        "equipo": equipo_val,
+                        "tutor": tutor_h,
+                        "telefono": telefono_h,
+                        "email": email_h,
+                    }
+                    st.rerun()
+                else:
+                    append_row("inscripciones", row)
+                    st.session_state[ok_flag] = True
+                    st.session_state[ok_data_key] = {
+                        "status": "ok",
+                        "fecha_iso": fkey,
+                        "fecha_txt": pd.to_datetime(fkey).strftime("%d/%m/%Y"),
+                        "hora": hora_sesion,
+                        "nombre": nombre_h,
+                        "canasta": canasta_final,
+                        "equipo": equipo_val,
+                        "tutor": tutor_h,
+                        "telefono": telefono_h,
+                        "email": email_h,
+                    }
+                    st.session_state[celebrate_key] = True
+                    st.rerun()
+                    
         # ===== FORMULARIO DE RESERVA =====
         with placeholder.form(f"form_{fkey}_{hkey}", clear_on_submit=False):
-            # Guardar familia DENTRO del form (es donde tiene sentido)
-            guardar_familia = st.checkbox(
-                "💾 Guardar estos datos para próximas reservas (con código de familia)",
-                value=True,
-                key=f"savefam_{fkey}_{hkey}"
-            )
-
             st.write("📝 Información del jugador")
-            nombre = st.text_input(
-                "Nombre y apellidos del jugador",
-                key=f"nombre_{fkey}_{hkey}"
-            )
+            nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}_{hkey}")
 
-            # Canasta + placeholder de error
             opciones_canasta = []
             if get_estado_grupo_mem(fkey, hkey, CATEG_MINI) == "ABIERTA":
                 opciones_canasta.append(CATEG_MINI)
@@ -958,23 +1518,13 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             canasta = st.radio("Canasta", opciones_canasta, key=f"canasta_{fkey}_{hkey}")
             err_canasta = st.empty()
 
-            # Aviso informativo según canasta
             if canasta == CATEG_MINI:
                 st.caption("ℹ️ Para **Minibasket** solo se permiten categorías **Benjamín** y **Alevín**.")
             elif canasta == CATEG_GRANDE:
                 st.caption("ℹ️ Para **Canasta grande** solo se permiten categorías **Infantil**, **Cadete** y **Junior**.")
 
-            # Categoría / Equipo + placeholder de error
-            equipo_sel = st.selectbox(
-                "Categoría / Equipo",
-                EQUIPOS_OPCIONES,
-                index=0,
-                key=f"equipo_sel_{fkey}_{hkey}"
-            )
-            equipo_otro = st.text_input(
-                "Especifica la categoría/equipo",
-                key=f"equipo_otro_{fkey}_{hkey}"
-            ) if equipo_sel == "Otro" else ""
+            equipo_sel = st.selectbox("Categoría / Equipo", EQUIPOS_OPCIONES, index=0, key=f"equipo_sel_{fkey}_{hkey}")
+            equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}_{hkey}") if equipo_sel == "Otro" else ""
 
             if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
                 equipo_val = equipo_sel
@@ -996,7 +1546,11 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             email = st.text_input("Email", key=f"email_{fkey}_{hkey}")
 
             st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
-
+            guardar_familia = st.checkbox(
+                "💾 Guardar estos datos para próximas reservas (con código de familia)",
+                value=True,
+                key=f"savefam_{fkey}_{hkey}"
+            )
             enviar = st.form_submit_button("Reservar")
 
             if enviar:
@@ -1035,9 +1589,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     err_canasta.error(f"⚠️ {canasta} está **CERRADA** para esta sesión. Elige la otra canasta.")
                     hay_error = True
 
-                if hay_error:
-                    pass
-                else:
+                if not hay_error:
                     ya = ya_existe_en_sesion_mem(fkey, hkey, nombre)
                     if ya == "inscripciones":
                         st.error("❌ Este jugador ya está inscrito en esta sesión.")
@@ -1055,7 +1607,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         # ---- Guardar familia/hijo y cookie (si procede) ----
                         family_code = ""
                         if guardar_familia:
-                            # usa el código del input (o cookie)
                             cod_in = (codigo_familia or "").strip() or codigo_cookie
                             family_code = upsert_familia_y_hijo(
                                 cod_in if cod_in else None,
