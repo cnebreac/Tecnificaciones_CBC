@@ -1452,9 +1452,10 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     equipo_h = to_text(sel_h.get("equipo", "")).strip()
                     canasta_h = to_text(sel_h.get("canasta", "")).strip()
 
-                    tutor_h = to_text(st.session_state.get(AUTO_TUTOR_KEY, "")).strip() or "—"
-                    telefono_h = to_text(st.session_state.get(AUTO_TEL_KEY, "")).strip()
-                    email_h = to_text(st.session_state.get(AUTO_EMAIL_KEY, "")).strip() or "—"
+                    # --- Datos tutor (de session_state ya autorrellenados por el código) ---
+                    tutor_h = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip() or "—"
+                    telefono_h = to_text(st.session_state.get(f"telefono_{fkey}_{hkey}", "")).strip()
+                    email_h = to_text(st.session_state.get(f"email_{fkey}_{hkey}", "")).strip() or "—"
 
                     if not nombre_h:
                         st.error("No se pudo leer el nombre del jugador guardado.")
