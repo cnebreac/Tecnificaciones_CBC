@@ -1353,7 +1353,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         
             if gate_pending:
                 st.write(f"Se ha detectado un código guardado en este dispositivo: `{codigo_cookie}`")
-                st.write("¿Quieres usar el código guardado?")
+                st.write("¿Quieres usar el código guardado? Haz doble click")
         
                 c_yes, c_no = st.columns(2)
                 with c_yes:
