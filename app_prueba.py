@@ -692,100 +692,100 @@ Entrenamientos de alto enfoque en grupos muy reducidos para maximizar el aprendi
             st.toast("✅ Inscripción realizada correctamente", icon="✅")
             st.balloons()
 
-    else:
-        with placeholder.form(f"form_{fkey}", clear_on_submit=True):
-            st.write("📝 Información del jugador")
-            nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
-            canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
-
-            # Select de equipo/categoría (OBLIGATORIO)
-            equipo_sel = st.selectbox(
-                "Categoría / Equipo",
-                EQUIPOS_OPCIONES,
-                index=0,
-                key=f"equipo_sel_{fkey}"
-            )
-            equipo_otro = ""
-            if equipo_sel == "Otro":
-                equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}")
-
-            # Normalización de valor obligatorio
-            equipo_val = ""
-            if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
-                equipo_val = equipo_sel
-            elif equipo_sel == "Otro":
-                equipo_val = (equipo_otro or "").strip()
-
-            padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
-            telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
-            email = st.text_input("Email", key=f"email_{fkey}")
-
-            # Recordatorio sutil dentro del formulario
-            st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
-
-            enviar = st.form_submit_button("Reservar")
-
-            if enviar:
-                # Validaciones obligatorias
-                errores = []
-                if not nombre:
-                    errores.append("**nombre del jugador**")
-                if not telefono:
-                    errores.append("**teléfono**")
-                if not equipo_val:
-                    errores.append("**categoría/equipo** (obligatorio)")
-
-                if errores:
-                    st.error("Por favor, rellena: " + ", ".join(errores) + ".")
-                else:
-                    ya = ya_existe_en_sesion(fkey, nombre)
-                    if ya == "inscripciones":
-                        st.error("❌ Este jugador ya está inscrito en esta sesión.")
-                    elif ya == "waitlist":
-                        st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
+        else:
+            with placeholder.form(f"form_{fkey}", clear_on_submit=True):
+                st.write("📝 Información del jugador")
+                nombre = st.text_input("Nombre y apellidos del jugador", key=f"nombre_{fkey}")
+                canasta = st.radio("Canasta", [CATEG_MINI, CATEG_GRANDE], horizontal=True)
+    
+                # Select de equipo/categoría (OBLIGATORIO)
+                equipo_sel = st.selectbox(
+                    "Categoría / Equipo",
+                    EQUIPOS_OPCIONES,
+                    index=0,
+                    key=f"equipo_sel_{fkey}"
+                )
+                equipo_otro = ""
+                if equipo_sel == "Otro":
+                    equipo_otro = st.text_input("Especifica la categoría/equipo", key=f"equipo_otro_{fkey}")
+    
+                # Normalización de valor obligatorio
+                equipo_val = ""
+                if equipo_sel and equipo_sel not in ("— Selecciona —", "Otro"):
+                    equipo_val = equipo_sel
+                elif equipo_sel == "Otro":
+                    equipo_val = (equipo_otro or "").strip()
+    
+                padre = st.text_input("Nombre del padre/madre/tutor", key=f"padre_{fkey}")
+                telefono = st.text_input("Teléfono de contacto del tutor", key=f"telefono_{fkey}")
+                email = st.text_input("Email", key=f"email_{fkey}")
+    
+                # Recordatorio sutil dentro del formulario
+                st.caption("Tras pulsar **Reservar**, debe aparecer el botón **“⬇️ Descargar justificante (PDF)”**. Si no aparece, la reserva no se ha completado.")
+    
+                enviar = st.form_submit_button("Reservar")
+    
+                if enviar:
+                    # Validaciones obligatorias
+                    errores = []
+                    if not nombre:
+                        errores.append("**nombre del jugador**")
+                    if not telefono:
+                        errores.append("**teléfono**")
+                    if not equipo_val:
+                        errores.append("**categoría/equipo** (obligatorio)")
+    
+                    if errores:
+                        st.error("Por favor, rellena: " + ", ".join(errores) + ".")
                     else:
-                        libres_cat = plazas_libres(fkey, canasta)
-                        row = [
-                            dt.datetime.now().isoformat(timespec="seconds"),
-                            fkey, hora_sesion, nombre, canasta,
-                            (equipo_val or ""), (padre or ""), telefono, (email or "")
-                        ]
-                        if libres_cat <= 0:
-                            # Lista de espera
-                            append_row("waitlist", row)
-                            st.session_state[ok_flag] = True
-                            st.session_state[ok_data_key] = {
-                                "status": "wait",
-                                "fecha_iso": fkey,
-                                "fecha_txt": dt.datetime.strptime(fkey, "%Y-%m-%d").strftime("%d/%m/%Y"),
-                                "hora": hora_sesion,
-                                "nombre": nombre,
-                                "canasta": canasta,
-                                "equipo": (equipo_val or "—"),
-                                "tutor": (padre or "—"),
-                                "telefono": telefono,
-                                "email": (email or "—"),
-                            }
-                            st.cache_data.clear()
-                            st.rerun()
+                        ya = ya_existe_en_sesion(fkey, nombre)
+                        if ya == "inscripciones":
+                            st.error("❌ Este jugador ya está inscrito en esta sesión.")
+                        elif ya == "waitlist":
+                            st.warning("ℹ️ Este jugador ya está en lista de espera para esta sesión.")
                         else:
-                            # Inscripción confirmada
-                            append_row("inscripciones", row)
-                            st.session_state[ok_flag] = True
-                            st.session_state[ok_data_key] = {
-                                "status": "ok",
-                                "fecha_iso": fkey,
-                                "fecha_txt": dt.datetime.strptime(fkey, "%Y-%m-%d").strftime("%d/%m/%Y"),
-                                "hora": hora_sesion,
-                                "nombre": nombre,
-                                "canasta": canasta,
-                                "equipo": (equipo_val or "—"),
-                                "tutor": (padre or "—"),
-                                "telefono": telefono,
-                                "email": (email or "—"),
-                            }
-                            st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
-                            st.cache_data.clear()
-                            st.rerun()
-
-
+                            libres_cat = plazas_libres(fkey, canasta)
+                            row = [
+                                dt.datetime.now().isoformat(timespec="seconds"),
+                                fkey, hora_sesion, nombre, canasta,
+                                (equipo_val or ""), (padre or ""), telefono, (email or "")
+                            ]
+                            if libres_cat <= 0:
+                                # Lista de espera
+                                append_row("waitlist", row)
+                                st.session_state[ok_flag] = True
+                                st.session_state[ok_data_key] = {
+                                    "status": "wait",
+                                    "fecha_iso": fkey,
+                                    "fecha_txt": dt.datetime.strptime(fkey, "%Y-%m-%d").strftime("%d/%m/%Y"),
+                                    "hora": hora_sesion,
+                                    "nombre": nombre,
+                                    "canasta": canasta,
+                                    "equipo": (equipo_val or "—"),
+                                    "tutor": (padre or "—"),
+                                    "telefono": telefono,
+                                    "email": (email or "—"),
+                                }
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                # Inscripción confirmada
+                                append_row("inscripciones", row)
+                                st.session_state[ok_flag] = True
+                                st.session_state[ok_data_key] = {
+                                    "status": "ok",
+                                    "fecha_iso": fkey,
+                                    "fecha_txt": dt.datetime.strptime(fkey, "%Y-%m-%d").strftime("%d/%m/%Y"),
+                                    "hora": hora_sesion,
+                                    "nombre": nombre,
+                                    "canasta": canasta,
+                                    "equipo": (equipo_val or "—"),
+                                    "tutor": (padre or "—"),
+                                    "telefono": telefono,
+                                    "email": (email or "—"),
+                                }
+                                st.session_state[celebrate_key] = True  # ← globos solo tras confirmar
+                                st.cache_data.clear()
+                                st.rerun()
+    
+    
