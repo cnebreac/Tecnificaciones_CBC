@@ -1377,35 +1377,41 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         
                         st.success("Datos cargados.")
                         st.rerun()
-        
+            nnn
             with col_forget:
                 if codigo_cookie:
                     st.markdown(
                         """
                         <style>
-                        .forget-link { text-align: right; }
-                        .forget-link div.stButton > button {
+                        .forget-link {
+                            text-align: right;
+                            margin-top: 34px; /* alinea verticalmente con el botón */
+                        }
+                        .forget-link button {
                             background: none !important;
                             border: none !important;
                             padding: 0 !important;
                             margin: 0 !important;
                             color: #1f77b4 !important;
                             text-decoration: underline;
+                            font-size: 0.85rem;
                             font-weight: 400;
+                            cursor: pointer;
                             box-shadow: none !important;
-                            min-height: 0 !important;
-                            height: auto !important;
                         }
-                        .forget-link div.stButton > button:hover { opacity: 0.85; }
+                        .forget-link button:hover {
+                            opacity: 0.8;
+                        }
                         </style>
                         """,
                         unsafe_allow_html=True
                     )
+        
                     st.markdown("<div class='forget-link'>", unsafe_allow_html=True)
                     if st.button(
                         "Olvidar este código",
                         key=f"forget_{fkey}_{hkey}",
-                        help="Eliminar el código guardado en este dispositivo",
+                        help="Eliminar el código guardado en este dispositivo"
                     ):
                         cookies["family_code"] = ""
                         cookies.save()
@@ -1414,7 +1420,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.success("Código eliminado de este dispositivo.")
                         st.rerun()
                     st.markdown("</div>", unsafe_allow_html=True)
-        
             # Autocarga si ya hay cookie (sin pulsar botón)
             if codigo_cookie and not st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
                 fam = get_familia_por_codigo(codigo_cookie)
