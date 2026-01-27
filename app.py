@@ -1335,8 +1335,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
             tab_auto, tab_manual = st.tabs(["🔐 Autorrellenar con código", "✍️ Rellenar manualmente"])
         else:
             tab_manual, tab_auto = st.tabs(["✍️ Rellenar manualmente", "🔐 Autorrellenar con código"])
-    
 
+        
         # ==========================================================
         # TAB 1: AUTORELLENAR + RESERVA RÁPIDA
         # ==========================================================
@@ -1349,11 +1349,21 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 placeholder="Ej: CBC-7F3KQ9P2..."
             )
         
-            # --- Fila: "Usar este código" (izq) + "Olvidar" (der tipo link) ---
-            # --- Fila: "Usar este código" (izq) + "Olvidar" (der tipo link) ---
+            # ✅ define esto ANTES de usarlo
+            hijos_cargados = st.session_state.get(f"hijos_{fkey}_{hkey}", [])
+            fam_valida_o_hijos_cargados = bool(hijos_cargados)  # lo que realmente quieres controlar
+            # (si quieres también considerar "código escrito", puedes usar: bool(codigo_familia.strip()) )
+        
             col_use, col_forget = st.columns([3, 1], vertical_alignment="center")
-            
+        
             with col_use:
+                # Mostrar checkbox solo si NO hay cookie guardada y ya hay datos cargados (o lo que tú decidas)
+                mostrar_recordar = (not bool(codigo_cookie)) and bool(fam_valida_o_hijos_cargados)
+                if mostrar_recordar:
+                    recordar_dispositivo = st.checkbox("Guardar este código en este dispositivo", value=False)
+                else:
+                    recordar_dispositivo = False
+        
                 if st.button("Usar este código", key=f"autofill_btn_{fkey}_{hkey}", use_container_width=True):
                     fam = get_familia_por_codigo(codigo_familia)
                     if not fam:
@@ -1364,16 +1374,15 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.session_state[f"telefono_{fkey}_{hkey}"] = fam.get("telefono", "")
                         st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                         st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
+        
                         st.success("Datos cargados.")
                         st.rerun()
-            
+        
             with col_forget:
-                # Solo mostrar "Olvidar" si hay cookie
                 if codigo_cookie:
                     st.markdown(
                         """
                         <style>
-                        /* SOLO el botón dentro de .forget-link parece un link */
                         .forget-link { text-align: right; }
                         .forget-link div.stButton > button {
                             background: none !important;
@@ -1387,14 +1396,11 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                             min-height: 0 !important;
                             height: auto !important;
                         }
-                        .forget-link div.stButton > button:hover {
-                            opacity: 0.85;
-                        }
+                        .forget-link div.stButton > button:hover { opacity: 0.85; }
                         </style>
                         """,
                         unsafe_allow_html=True
                     )
-            
                     st.markdown("<div class='forget-link'>", unsafe_allow_html=True)
                     if st.button(
                         "Olvidar este código",
@@ -1408,21 +1414,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         st.success("Código eliminado de este dispositivo.")
                         st.rerun()
                     st.markdown("</div>", unsafe_allow_html=True)
-            
-                    
-            # --- Checkbox "Guardar este código" SOLO si NO hay cookie actualmente ---
-            # (y solo si hay algo válido cargado/usable; si no, no tiene sentido mostrarlo)
-            mostrar_recordar = (not bool(codigo_cookie)) and bool(fam_valida_o_hijos_cargados)
-            if mostrar_recordar:
-                recordar_dispositivo = st.checkbox(
-                    "Guardar este código en este dispositivo",
-                    value=False,
-                    key=f"remember_{fkey}_{hkey}"
-                )
-            else:
-                recordar_dispositivo = False
         
-            # --- Autocarga si ya hay cookie (sin pulsar botón) ---
+            # Autocarga si ya hay cookie (sin pulsar botón)
             if codigo_cookie and not st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
                 fam = get_familia_por_codigo(codigo_cookie)
                 if fam:
@@ -1432,6 +1425,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     st.session_state[f"email_{fkey}_{hkey}"] = fam.get("email", "")
                     st.session_state[f"hijos_{fkey}_{hkey}"] = hijos or []
                     st.session_state[f"autofilled_{fkey}_{hkey}"] = True
+        
 
             # ==========================
             # ⚡ RESERVA RÁPIDA
