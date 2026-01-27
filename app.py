@@ -1332,7 +1332,12 @@ Revisa los campos obligatorios o vuelve a intentarlo.
         # ✅ IMPORTANTE: esto debe estar FUERA de las tabs (lo usan ambas pestañas)
         codigo_cookie = (cookies.get("family_code") or "").strip()
 
-        tab_auto, tab_manual = st.tabs(["🔐 Autorrellenar con código", "✍️ Rellenar manualmente"])
+        # ✅ Orden dinámico: por defecto MANUAL, salvo si hay cookie -> AUTO primero
+        if codigo_cookie:
+            tab_auto, tab_manual = st.tabs(["🔐 Autorrellenar con código", "✍️ Rellenar manualmente"])
+        else:
+            tab_manual, tab_auto = st.tabs(["✍️ Rellenar manualmente", "🔐 Autorrellenar con código"])
+    
 
         # ==========================================================
         # TAB 1: AUTORELLENAR + RESERVA RÁPIDA
