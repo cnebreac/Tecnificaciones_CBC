@@ -1351,21 +1351,31 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 placeholder="Ej: CBC-7F3KQ9P2..."
             )
 
-            colc1, colc2 = st.columns([1, 1])
-            with colc1:
+            col_use, col_forget = st.columns([3, 1])
+            with col_use:
                 mostrar_recordar = (not codigo_cookie) and (fam_valida_o_hijos_cargados)
                 if mostrar_recordar:
                     recordar_dispositivo = st.checkbox("Guardar este código en este dispositivo", value=False)
                 else:
                     recordar_dispositivo = False
 
-            with colc2:
-                if st.button("🧹 Olvidar este dispositivo", key=f"forget_{fkey}_{hkey}"):
+            with col_forget:
+                st.markdown(
+                    "<div style='text-align: right; margin-top: 6px;'>",
+                    unsafe_allow_html=True
+                )
+                if st.button(
+                    "Olvidar",
+                    key=f"forget_{fkey}_{hkey}",
+                    help="Eliminar el código guardado en este dispositivo",
+                ):
                     cookies["family_code"] = ""
                     cookies.save()
-                    st.success("Código eliminado de este dispositivo.")
                     st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
+                    st.success("Código eliminado de este dispositivo.")
                     st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+            
 
             # Autocarga si ya hay cookie (sin pulsar botón)
             if codigo_cookie and not st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
