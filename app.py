@@ -1473,7 +1473,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 tutor_name = to_text(st.session_state.get(f"padre_{fkey}_{hkey}", "")).strip()
                 if tutor_name and st.session_state.get(f"autofilled_{fkey}_{hkey}", False):
                     st.markdown(
-                        f"Hola, {tutor_name}  \n"
+                        f"Hola, **{tutor_name}**  \n"
                         "Hemos cargado tus datos guardados para facilitar la reserva."
                     )
 
