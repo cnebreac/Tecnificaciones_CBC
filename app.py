@@ -1365,7 +1365,6 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         # limpiamos cosas de autorellenar por si acaso
                         st.session_state.pop(f"hijos_{fkey}_{hkey}", None)
                         st.session_state.pop(f"autofilled_{fkey}_{hkey}", None)
-                        st.info("Si tienes un código válido, usa 'Usar este código' para ver tus jugadores guardados.")
 
                         st.rerun()
         
@@ -1404,6 +1403,8 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                     input_norm  = (codigo_familia or "").strip().upper()
                     cookie_norm = (codigo_cookie_effective or "").strip().upper()
                     mostrar_usar = (not cookie_norm) or (input_norm and input_norm != cookie_norm)
+                    st.info("Si tienes un código válido, usa 'Usar este código' para ver tus jugadores guardados.")
+
         
                     if mostrar_usar:
                         if st.button("Usar este código", key=f"autofill_btn_{fkey}_{hkey}", use_container_width=True):
