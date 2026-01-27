@@ -276,7 +276,7 @@ Excepción: {type(e).__name__}""")
         st.stop()
 
 # ---- Cabeceras esperadas en inscripciones / waitlist ----
-_EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","categoria","tutor","telefono","email"]
+_EXPECTED_HEADERS = ["timestamp","fecha_iso","hora","nombre","canasta","equipo","tutor","telefono","email"]
 
 # ====== CARGA CACHEADA (TTL=60s) ======
 @st.cache_data(ttl=60, show_spinner=False)
@@ -1469,21 +1469,12 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         cookies["family_code"] = cod_para_recordar
                         cookies.save()
                     
-                    categoria_val = ""
-                    ev = (equipo_val or "").strip()
-                    if ev:
-                        categoria_val = ev.split()[0]
-                    
                     row = [
                         dt.datetime.now().isoformat(timespec="seconds"),
                         fkey, hora_sesion, nombre_h, canasta_final,
-                        equipo_val,
-                        (categoria_val or ""),
-                        tutor_h,
-                        telefono_h,
-                        email_h
+                        equipo_val, tutor_h, telefono_h, email_h
                     ]
-
+                    
 
                     libres_cat = plazas_libres_mem(fkey, hkey, canasta_final)
                     if libres_cat <= 0:
@@ -1621,21 +1612,11 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                         else:
                             libres_cat = plazas_libres_mem(fkey, hkey, canasta)
 
-                            categoria_val = ""
-                            ev = (equipo_val or "").strip()
-                            if ev:
-                                categoria_val = ev.split()[0]  # "Benjamín", "Alevín", "Infantil"...
-
                             row = [
                                 dt.datetime.now().isoformat(timespec="seconds"),
                                 fkey, hora_sesion, nombre, canasta,
-                                (equipo_val or ""),
-                                (categoria_val or ""),
-                                (padre or ""),
-                                telefono,
-                                (email or "")
+                                (equipo_val or ""), (padre or ""), telefono, (email or "")
                             ]
-
 
                             family_code = ""
                             if guardar_familia:
