@@ -63,7 +63,7 @@ def read_secret(key: str, default=None):
         return os.getenv(key, default)
         
 cookies = EncryptedCookieManager(
-    prefix="cbc/",
+    prefix="cbc-",
     password=read_secret("COOKIE_PASSWORD", "CAMBIA_ESTO_EN_SECRETS")
 )
 
