@@ -69,6 +69,7 @@ cookies = EncryptedCookieManager(
 
 if not cookies.ready():
     st.stop()
+_ = cookies.get("family_code")
 
 def to_text(v):
     if v is None:
@@ -1387,13 +1388,13 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 # --- Layout botones ---
                 col_use, col_forget = st.columns([3, 1], vertical_alignment="center")
         
-                with col_use:
+                #with col_use:
                     # Checkbox "recordar" solo si NO hay cookie guardada y ya hay datos cargados
-                    mostrar_recordar = (not bool(codigo_cookie_effective)) and bool(fam_valida_o_hijos_cargados)
-                    if mostrar_recordar:
-                        recordar_dispositivo = st.checkbox("Guardar este código en este dispositivo", value=False)
-                    else:
-                        recordar_dispositivo = False
+                 #   mostrar_recordar = (not bool(codigo_cookie_effective)) and bool(fam_valida_o_hijos_cargados)
+                  #  if mostrar_recordar:
+                   #     recordar_dispositivo = st.checkbox("Guardar este código en este dispositivo", value=False)
+                    #else:
+                     #   recordar_dispositivo = False
         
                     # ✅ Botón "Usar este código":
                     # - Si ya hay cookie y el input es igual, NO lo mostramos (ya se está usando)
