@@ -1388,7 +1388,7 @@ Revisa los campos obligatorios o vuelve a intentarlo.
                 # --- Layout botones ---
                 col_use, col_forget = st.columns([3, 1], vertical_alignment="center")
         
-                #with col_use:
+                with col_use:
                     # Checkbox "recordar" solo si NO hay cookie guardada y ya hay datos cargados
                  #   mostrar_recordar = (not bool(codigo_cookie_effective)) and bool(fam_valida_o_hijos_cargados)
                   #  if mostrar_recordar:
