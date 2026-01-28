@@ -67,8 +67,14 @@ cookies = EncryptedCookieManager(
     password=read_secret("COOKIE_PASSWORD")
 )
 
+from streamlit_autorefresh import st_autorefresh
+
 if not cookies.ready():
+    # Reintenta solo unas veces, rápido, y luego ya cargará la cookie sola.
+    st_autorefresh(interval=200, limit=10, key="cookies_init_refresh")
     st.stop()
+
+# ✅ A partir de aquí, ya puedes leer cookies con fiabilidad en el primer render
 _ = cookies.get("family_code")
 
 def to_text(v):
