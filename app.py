@@ -64,7 +64,7 @@ def read_secret(key: str, default=None):
         
 cookies = EncryptedCookieManager(
     prefix="cbc-",
-    password=read_secret("COOKIE_PASSWORD", "CAMBIA_ESTO_EN_SECRETS")
+    password=read_secret("COOKIE_PASSWORD")
 )
 
 if not cookies.ready():
